@@ -1,0 +1,1569 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<title>ドップラー速度計</title>
+<meta name="theme-color" content="#EDE9DF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B0F0D" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="速度計">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@300;400;500;600;700&family=Barlow+Semi+Condensed:wght@400;500;600&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<style>html{color-scheme:light dark}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+<style>
+:root{
+  --bg:#EDE9DF; --surface:#F7F4EC; --surface-2:#E1DCCF; --line:#CCC5B4;
+  --ink:#191C18; --ink-2:#575C51; --ink-3:#888D7E;
+  --accent:#0E7C4F; --on-accent:#FBFDF9; --warn:#A96A00; --crit:#AE2A20;
+  --shadow:0 1px 0 rgba(0,0,0,.06), 0 6px 18px -12px rgba(0,0,0,.35);
+  --font-num:"Barlow Condensed","Helvetica Neue",Arial,sans-serif;
+  --font-lab:"Barlow Semi Condensed","Helvetica Neue",Arial,sans-serif;
+  --font-ui:"Zen Kaku Gothic New","Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0B0F0D; --surface:#131916; --surface-2:#1C2420; --line:#2A342E;
+    --ink:#E7EDE8; --ink-2:#98A49C; --ink-3:#68746C;
+    --accent:#34CE89; --on-accent:#06130C; --warn:#EDA63B; --crit:#FF5B4E;
+    --shadow:0 1px 0 rgba(255,255,255,.03), 0 10px 24px -16px rgba(0,0,0,.9);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0B0F0D; --surface:#131916; --surface-2:#1C2420; --line:#2A342E;
+  --ink:#E7EDE8; --ink-2:#98A49C; --ink-3:#68746C;
+  --accent:#34CE89; --on-accent:#06130C; --warn:#EDA63B; --crit:#FF5B4E;
+  --shadow:0 1px 0 rgba(255,255,255,.03), 0 10px 24px -16px rgba(0,0,0,.9);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:var(--font-ui); -webkit-font-smoothing:antialiased;
+  overscroll-behavior:none; -webkit-tap-highlight-color:transparent;
+}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+
+.app{
+  height:100dvh; display:grid;
+  grid-template-rows:auto auto minmax(0,1fr) auto auto auto;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+}
+/* 駅バー(.eta)は追跡していない間 hidden(=display:none) になり、grid の
+   自動配置から外れる。行番号を明示しておかないと、隠れた分だけ後続の
+   要素が1行ずつ繰り上がり、可変(1fr)行の割り当てが崩れてレイアウトが
+   壊れるため、各子要素の行を固定する。                              */
+.bar{grid-row:1}
+.eta{grid-row:2}
+.stage{grid-row:3}
+.trend{grid-row:4}
+.stats{grid-row:5}
+.rail{grid-row:6}
+
+.bar{display:flex;align-items:center;gap:10px;padding:10px 14px 8px;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:baseline;gap:8px;min-width:0}
+.brand-mark{
+  font-family:var(--font-num); font-weight:700; font-size:15px; letter-spacing:.06em;
+  color:var(--bg); background:var(--ink); padding:2px 6px 1px; border-radius:3px;
+}
+.brand-name{font-size:12.5px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.status{
+  margin-left:auto;display:flex;align-items:center;gap:7px;
+  font-family:var(--font-lab);font-size:12px;letter-spacing:.03em;color:var(--ink-2);white-space:nowrap;
+}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ink-3);flex:none;transition:background .3s}
+.dot.good{background:var(--accent)}
+.dot.warn{background:var(--warn)}
+.dot.bad{background:var(--crit)}
+.icon-btn{
+  width:32px;height:32px;border-radius:8px;border:1px solid var(--line);
+  display:grid;place-items:center;flex:none;color:var(--ink-2);background:var(--surface);
+}
+.icon-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round}
+
+.stage{position:relative;min-height:0}
+#meter{display:block;width:100%;height:100%}
+
+.overlay{
+  position:absolute;inset:0;padding:20px;background:var(--bg);
+  display:flex;align-items:center;justify-content:center;
+  overflow-y:auto;-webkit-overflow-scrolling:touch;
+}
+/* 診断はページ全体を使う（メーター枠に収めると窮屈で下の帯とぶつかる） */
+.overlay.full{position:fixed;z-index:15}
+.overlay[hidden]{display:none}
+.card{
+  margin:auto;max-width:33rem;width:100%;text-align:center;
+  background:var(--surface);border:1px solid var(--line);border-radius:16px;
+  padding:24px 20px;box-shadow:var(--shadow);
+}
+.card h2{margin:0 0 9px;font-size:18px;font-weight:700;line-height:1.5;text-wrap:balance}
+.card p{margin:0 0 15px;font-size:13px;line-height:1.75;color:var(--ink-2);text-wrap:pretty}
+.card p.tight{margin-bottom:9px}
+.start{
+  display:inline-flex;align-items:center;gap:9px;background:var(--accent);color:var(--on-accent);
+  padding:13px 30px;border-radius:999px;font-weight:700;font-size:15.5px;letter-spacing:.02em;
+}
+.ghost{display:inline-block;margin-top:14px;font-size:12.5px;color:var(--ink-2);border-bottom:1px solid var(--line);padding-bottom:1px}
+.err{color:var(--crit);font-size:12.5px;line-height:1.75;margin:0 0 14px}
+a.start{text-decoration:none}
+
+/* 位置情報が使えないときの自己診断 */
+.diag{text-align:left;margin:0 0 16px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.diag li{
+  display:flex;gap:10px;align-items:flex-start;list-style:none;
+  padding:10px 13px;border-bottom:1px solid var(--line);font-size:12.5px;line-height:1.65;
+}
+.diag li:last-child{border-bottom:0}
+.diag .mk{flex:none;width:17px;height:17px;border-radius:50%;display:grid;place-items:center;
+  font-size:11px;font-weight:700;margin-top:1px;color:var(--bg)}
+.diag .ok .mk{background:var(--accent)}
+.diag .ng .mk{background:var(--crit)}
+.diag .un .mk{background:var(--ink-3)}
+.diag b{display:block;font-weight:600;color:var(--ink);font-size:12.5px}
+.diag span{color:var(--ink-2)}
+.diag .ng span{color:var(--crit)}
+.urlbox{
+  user-select:all;-webkit-user-select:all;word-break:break-all;
+  font-size:11px;line-height:1.6;color:var(--ink-2);background:var(--surface-2);
+  border-radius:9px;padding:9px 11px;margin:0 0 14px!important;font-family:var(--font-lab);
+}
+.steps{text-align:left;font-size:12px;line-height:1.85;color:var(--ink-2);margin:0 0 8px;padding-left:1.1em}
+.steps li{margin-bottom:3px}
+.steps b{color:var(--ink);font-weight:600}
+
+.trend{position:relative;height:46px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--surface)}
+#spark{display:block;width:100%;height:100%}
+.trend-tag{
+  position:absolute;left:12px;top:50%;transform:translateY(-50%);
+  font-family:var(--font-lab);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-3);pointer-events:none;
+}
+
+.stats{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--line)}
+.tile{padding:9px 5px 10px;text-align:center;min-width:0;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+.tile:nth-child(4n){border-right:0}
+.tile:nth-child(n+5){border-bottom:0}
+.tile .k{
+  font-family:var(--font-lab);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink-3);display:block;margin-bottom:2px;white-space:nowrap;overflow:hidden;
+}
+.tile .v{
+  font-family:var(--font-num);font-weight:500;font-size:22px;line-height:1;
+  font-variant-numeric:tabular-nums;color:var(--ink);white-space:nowrap;overflow:hidden;
+}
+.tile .v small{font-size:11px;font-weight:400;color:var(--ink-3);margin-left:2px}
+
+.rail{display:flex;gap:7px;padding:9px 12px calc(9px + env(safe-area-inset-bottom));overflow-x:auto;scrollbar-width:none}
+.rail::-webkit-scrollbar{display:none}
+.chip{
+  flex:none;padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink-2);
+  transition:background .16s,color .16s,border-color .16s;
+}
+.chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg);font-weight:700}
+
+.sheet{position:fixed;inset:0;z-index:20;display:grid;align-items:end;background:rgba(0,0,0,.42)}
+.sheet[hidden]{display:none}
+.panel{
+  background:var(--bg);border-top-left-radius:18px;border-top-right-radius:18px;
+  padding:8px 0 calc(20px + env(safe-area-inset-bottom));
+  max-height:88dvh;overflow-y:auto;box-shadow:0 -12px 40px -20px rgba(0,0,0,.7);
+}
+.grab{width:38px;height:4px;border-radius:2px;background:var(--line);margin:8px auto 14px}
+.grp{padding:0 18px 18px}
+.grp h3{margin:0 0 9px;font-family:var(--font-lab);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+.opts{display:grid;grid-template-columns:repeat(2,1fr);gap:7px}
+.opts.four{grid-template-columns:repeat(4,1fr)}
+.opt{padding:11px 6px;border-radius:11px;border:1px solid var(--line);background:var(--surface);text-align:center}
+.opt b{display:block;font-size:13.5px;font-weight:600;color:var(--ink-2)}
+.opt span{display:block;font-size:10.5px;color:var(--ink-3);margin-top:2px}
+.opt[aria-pressed="true"]{border-color:var(--ink);background:var(--surface-2)}
+.opt[aria-pressed="true"] b{color:var(--ink)}
+.row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);font-size:14px}
+.row:last-child{border-bottom:0}
+.row .sub{display:block;font-size:11.5px;color:var(--ink-3);margin-top:2px;line-height:1.5}
+.sw{margin-left:auto;flex:none;width:46px;height:27px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line);position:relative;transition:background .18s}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:19px;height:19px;border-radius:50%;background:var(--ink-3);transition:transform .18s,background .18s}
+.sw[aria-pressed="true"]{background:var(--surface-2)}
+.sw[aria-pressed="true"]::after{transform:translateX(19px);background:var(--accent)}
+.danger{width:100%;padding:12px;border-radius:11px;border:1px solid var(--line);color:var(--crit);font-size:13.5px;font-weight:600;background:var(--surface)}
+.note{font-size:12px;line-height:1.85;color:var(--ink-2);background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:13px 15px}
+.note b{color:var(--ink);font-weight:600}
+.note + .note{margin-top:8px}
+.close{display:block;margin:4px auto 0;font-size:13.5px;font-weight:600;color:var(--ink-2);padding:10px 26px}
+
+@media (min-width:560px){ .tile .v{font-size:26px} .trend{height:58px} }
+@media (orientation:landscape) and (max-height:560px){
+  .app{
+    grid-template-columns:1fr 240px;
+    grid-template-rows:auto auto minmax(0,1fr) auto;
+    grid-template-areas:"bar bar" "eta eta" "stage side" "rail side";
+  }
+  .bar{grid-area:bar}
+  .eta{grid-area:eta}
+  .stage{grid-area:stage}
+  .trend{display:none}
+  .stats{grid-area:side;grid-template-columns:repeat(2,1fr);border-left:1px solid var(--line);border-bottom:0;align-self:stretch}
+  .tile{border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .tile:nth-child(2n){border-right:0}
+  .rail{grid-area:rail}
+}
+
+.eta{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--line);background:var(--surface)}
+.eta[hidden]{display:none}
+.eta .info{flex:1;min-width:0;cursor:pointer}
+.eta .ln{font-family:var(--font-lab);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.eta .nx{font-size:15px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.eta .nx small{font-weight:400;color:var(--ink-2);font-size:11px;margin-right:4px}
+.eta .metrics{flex:none;text-align:right;font-family:var(--font-num);cursor:pointer}
+.eta .d{font-size:18px;font-weight:600;color:var(--ink);line-height:1.1;font-variant-numeric:tabular-nums}
+.eta .t{font-size:11px;color:var(--ink-2);font-family:var(--font-ui)}
+.eta .bar2{position:relative;height:3px;background:var(--line);border-radius:2px;overflow:hidden;margin-top:5px}
+.eta .fill{position:absolute;left:0;top:0;bottom:0;background:var(--accent);border-radius:2px;transition:width .3s linear}
+.eta .stop{flex:none;width:28px;height:28px;border-radius:8px;color:var(--ink-3);display:grid;place-items:center;font-size:15px;border:1px solid var(--line);background:var(--surface)}
+
+.stsearch{width:100%;padding:10px 12px;margin-bottom:8px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-size:14px}
+.stsearch:disabled{opacity:.45}
+.stlist{max-height:180px;overflow-y:auto;border:1px solid var(--line);border-radius:11px;background:var(--surface)}
+.stitem{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:10px 13px;border-bottom:1px solid var(--line);text-align:left;font-size:13.5px;color:var(--ink)}
+.stitem:last-child{border-bottom:0}
+.stitem[aria-pressed="true"]{background:var(--surface-2);font-weight:700}
+.stitem span{font-size:10.5px;color:var(--ink-3);flex:none}
+.hint{padding:16px;margin:0;text-align:center;font-size:12.5px;color:var(--ink-3)}
+.opts.three{grid-template-columns:repeat(3,1fr)}
+.dirbtns{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+
+.toast{position:fixed;left:14px;right:14px;top:calc(env(safe-area-inset-top) + 10px);z-index:40;background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:12px;font-size:13.5px;font-weight:600;text-align:center;box-shadow:var(--shadow);opacity:0;transform:translateY(-10px);transition:opacity .25s,transform .25s;pointer-events:none}
+.toast.show{opacity:1;transform:translateY(0)}
+
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+</style>
+
+<div class="app">
+  <header class="bar">
+    <div class="brand"><span class="brand-mark">Vd</span><span class="brand-name">ドップラー速度計</span></div>
+    <div class="status"><span class="dot" id="fixDot"></span><span id="fixText">待機中</span></div>
+    <button class="icon-btn" id="btnRoute" aria-label="次の駅を調べる">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="14" height="13" rx="3"/><path d="M5 12h14M9 4v8M15 4v8"/><circle cx="8.7" cy="19.3" r="1.3"/><circle cx="15.3" cy="19.3" r="1.3"/><path d="M7 17l-2 3M17 17l2 3"/></svg>
+    </button>
+    <button class="icon-btn" id="btnSettings" aria-label="設定を開く">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>
+    </button>
+  </header>
+
+  <div class="eta" id="etaBar" hidden>
+    <div class="info" id="etaInfo">
+      <span class="ln" id="etaLine">—</span>
+      <span class="nx"><small id="etaNextLabel">次は</small> <span id="etaNext">—</span></span>
+      <div class="bar2"><div class="fill" id="etaFill" style="width:0%"></div></div>
+    </div>
+    <div class="metrics" id="etaMetrics">
+      <div class="d" id="etaDist">—</div>
+      <div class="t" id="etaTime">—</div>
+    </div>
+    <button class="stop" id="btnEtaStop" aria-label="追跡をやめる">✕</button>
+  </div>
+
+  <div class="stage">
+    <canvas id="meter"></canvas>
+    <div class="overlay" id="overlay">
+      <div class="card" id="card">
+        <h2>衛星のドップラー効果で速さを測ります</h2>
+        <p class="tight">救急車のサイレンが近づくと高く聞こえるのと同じ原理。位置の差から割り算するより桁違いに正確で、条件がよければ誤差 0.2〜0.5 km/h です。</p>
+        <p>開始すると位置情報とモーションセンサーの許可を求めます。窓際に置くほど精度が上がります。</p>
+        <button class="start" id="btnStart">計測を開始</button>
+        <span class="ghost" id="btnDemo" role="button" tabindex="0">GPS なしでデモを見る</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="trend"><canvas id="spark"></canvas><span class="trend-tag">直近 60 秒</span></div>
+
+  <div class="stats">
+    <div class="tile"><span class="k">最高</span><span class="v" id="sMax">—</span></div>
+    <div class="tile"><span class="k">平均</span><span class="v" id="sAvg">—</span></div>
+    <div class="tile"><span class="k">距離</span><span class="v" id="sDist">—</span></div>
+    <div class="tile"><span class="k">走行時間</span><span class="v" id="sTime">0:00</span></div>
+    <div class="tile"><span class="k">高度</span><span class="v" id="sAlt">—</span></div>
+    <div class="tile"><span class="k">昇降</span><span class="v" id="sVs">—</span></div>
+    <div class="tile"><span class="k">方位</span><span class="v" id="sHdg">—</span></div>
+    <div class="tile"><span class="k" id="kAcc">0→100</span><span class="v" id="sAccel">—</span></div>
+  </div>
+
+  <nav class="rail" id="rail" aria-label="乗り物モード"></nav>
+</div>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-label="設定">
+    <div class="grab"></div>
+    <div class="grp"><h3>メーターの見た目</h3><div class="opts" id="skinOpts"></div></div>
+    <div class="grp"><h3>単位</h3><div class="opts four" id="unitOpts"></div></div>
+    <div class="grp">
+      <h3>動作</h3>
+      <div class="row">画面を消さない<span class="sub">計測中スリープを止めます</span>
+        <button class="sw" id="swWake" aria-pressed="false" aria-label="画面を消さない"></button></div>
+      <div class="row">デモ走行<span class="sub">GPS を使わず模擬データで動かします</span>
+        <button class="sw" id="swDemo" aria-pressed="false" aria-label="デモ走行"></button></div>
+      <div class="row">位置情報が使えないとき<span class="sub">原因を自動で調べます</span>
+        <button class="opt" id="btnDiag" style="margin-left:auto;padding:8px 16px"><b>調べる</b></button></div>
+      <div class="row" style="padding-top:16px"><button class="danger" id="btnReset">記録をリセット</button></div>
+    </div>
+    <div class="grp">
+      <h3>次の駅の通知</h3>
+      <div class="row">通知で知らせる<span class="sub">まもなく到着したら通知を出します（対応端末のみ）</span>
+        <button class="sw" id="swNotify" aria-pressed="false" aria-label="通知で知らせる"></button></div>
+      <div class="row">音声で知らせる<span class="sub">「まもなく○○です」と読み上げます</span>
+        <button class="sw" id="swVoice" aria-pressed="false" aria-label="音声で知らせる"></button></div>
+      <div class="row"><button class="opt" id="btnRtTest" style="margin-left:auto;padding:8px 16px"><b>テストする</b></button></div>
+      <div class="note"><b>画面がロックされると鳴りません。</b>電車に乗っている間は「画面を消さない」をONにし、この画面を開いたままにしてください。iPhoneのSafariは仕組み上、通知が出せない場合があります。その時も音声と画面上の帯でお知らせします。</div>
+    </div>
+    <div class="grp">
+      <h3>数字の読み方</h3>
+      <div class="note"><b>精度 ±◯m</b> は「だいたいこの円のなかにいます」という円の半径です。10m を切れば良好、50m を超えると数字は参考程度。</div>
+      <div class="note"><b>車のメーターとズレる</b>のは正常です。日本の保安基準は「メーター表示 40km/h のとき実速度 31.0〜42.5km/h なら合格」で、低く出ないよう高めに振るのが普通。GPS の方が実速度に近い値です。</div>
+      <div class="note"><b>トンネル・地下・車内の中央</b>では衛星が見えず精度が落ちます。電車の車体は金属なので、窓に近いほど有利です。</div>
+    </div>
+    <button class="close" id="btnClose">閉じる</button>
+  </div>
+</div>
+
+<div class="sheet" id="routeSheet" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-label="次の駅">
+    <div class="grab"></div>
+    <div class="grp">
+      <h3>会社を選ぶ</h3>
+      <div class="opts three" id="companyOpts"></div>
+    </div>
+    <div class="grp">
+      <h3>路線を選ぶ</h3>
+      <div class="stlist" id="lineList"><p class="hint">会社を選んでください</p></div>
+    </div>
+    <div class="grp">
+      <h3>今いる駅・これから乗る駅</h3>
+      <input class="stsearch" id="stSearch" type="text" inputmode="search" placeholder="駅名で検索…" disabled>
+      <div class="stlist" id="stationList"><p class="hint">路線を選んでください</p></div>
+    </div>
+    <div class="grp" id="dirGrp" hidden>
+      <h3>進む方向</h3>
+      <div class="dirbtns" id="dirBtns"></div>
+    </div>
+    <button class="close" id="btnRtClose">閉じる</button>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(() => {
+"use strict";
+
+/* ════════ 1. 定数 ════════ */
+
+const MODES = [
+  { key:"walk",  label:"徒歩・自転車", vmaxKmh:60,   q:0.90, amax:3.0,  zero:0.35, target:20  },
+  { key:"car",   label:"車・バイク",   vmaxKmh:180,  q:1.40, amax:12.0, zero:0.70, target:100 },
+  { key:"local", label:"在来線",       vmaxKmh:160,  q:0.30, amax:1.8,  zero:0.80, target:100 },
+  { key:"shink", label:"新幹線",       vmaxKmh:360,  q:0.12, amax:1.2,  zero:1.00, target:200 },
+  { key:"air",   label:"飛行機",       vmaxKmh:1100, q:0.10, amax:5.0,  zero:1.50, target:300 },
+];
+const SKINS = [
+  { key:"car",     name:"車風",     sub:"アナログ丸針" },
+  { key:"rail",    name:"電車風",   sub:"運転台の計器" },
+  { key:"pfd",     name:"飛行機風", sub:"PFD テープ"  },
+  { key:"digital", name:"デジタル", sub:"数字だけ"    },
+];
+const UNITS = [
+  { key:"kmh", label:"km/h", k:3.6 },
+  { key:"mph", label:"mph",  k:2.2369362920544 },
+  { key:"ms",  label:"m/s",  k:1 },
+  { key:"kt",  label:"kt",   k:1.9438444924406 },
+];
+const COMPASS16=["北","北北東","北東","東北東","東","東南東","南東","南南東",
+                 "南","南南西","南西","西南西","西","西北西","北西","北北西"];
+
+/* canvas の font はCSS変数を解釈しないので実名で持つ */
+const F_NUM='"Barlow Condensed","Helvetica Neue",Arial,sans-serif';
+const F_LAB='"Barlow Semi Condensed","Helvetica Neue",Arial,sans-serif';
+const F_UI='"Zen Kaku Gothic New","Hiragino Sans","Yu Gothic",system-ui,sans-serif';
+const TAU=Math.PI*2, KT=1.9438444924406, FT=3.280839895;
+const clamp=(x,a,b)=>x<a?a:(x>b?b:x);
+const P0=50;   // 計測開始時の不確かさ（大きいほど最初の実測値に素早く合わせる）
+
+function haversine(la1,lo1,la2,lo2){
+  const R=6371008.8, d=Math.PI/180;
+  const dla=(la2-la1)*d, dlo=(lo2-lo1)*d;
+  const a=Math.sin(dla/2)**2 + Math.cos(la1*d)*Math.cos(la2*d)*Math.sin(dlo/2)**2;
+  return 2*R*Math.asin(Math.min(1,Math.sqrt(a)));
+}
+function isDark(){
+  const t=document.documentElement.getAttribute("data-theme");
+  if(t==="dark") return true;
+  if(t==="light") return false;
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
+/* ════════ 1b. 駅データ（名鉄・名古屋市営地下鉄・JR東海道本線）════════
+   名鉄・JRは緯度経度つき(出典: Seo-4d696b75/station_database)。
+   地下鉄は地上区間がほとんど無くGPSが入りにくいため、緯度経度の代わりに
+   公表されている営業キロ(累積距離)を使い、オドメーター(積算距離)で
+   駅間の進み具合を追う。kind:"ll"=緯度経度あり／"km"=営業キロのみ／
+   "km_uniform"=総距離だけ判明していて等間隔とみなす。               */
+const STATION_LINES = {"meitetsu_nagoya":{"name":"名鉄名古屋本線","company":"名古屋鉄道","kind":"ll","stations":[{"n":"豊橋","lat":34.762734,"lon":137.382128},{"n":"伊奈","lat":34.802857,"lon":137.354743},{"n":"小田渕","lat":34.814739,"lon":137.34559},{"n":"国府(愛知)","lat":34.83752,"lon":137.328101},{"n":"御油","lat":34.846113,"lon":137.321443},{"n":"名電赤坂","lat":34.859331,"lon":137.311152},{"n":"名電長沢","lat":34.871623,"lon":137.288298},{"n":"本宿(愛知)","lat":34.893025,"lon":137.260014},{"n":"名電山中","lat":34.899474,"lon":137.242829},{"n":"藤川","lat":34.913304,"lon":137.218428},{"n":"美合","lat":34.923763,"lon":137.196317},{"n":"男川","lat":34.937461,"lon":137.183296},{"n":"東岡崎","lat":34.951904,"lon":137.167333},{"n":"岡崎公園前","lat":34.954984,"lon":137.153309},{"n":"矢作橋","lat":34.961149,"lon":137.139957},{"n":"宇頭","lat":34.971367,"lon":137.118103},{"n":"新安城","lat":34.986885,"lon":137.085443},{"n":"牛田(愛知)","lat":34.999294,"lon":137.060946},{"n":"知立","lat":35.006198,"lon":137.039628},{"n":"一ツ木","lat":35.01367,"lon":137.02551},{"n":"富士松","lat":35.029759,"lon":137.016508},{"n":"豊明","lat":35.041127,"lon":137.008161},{"n":"前後","lat":35.05227,"lon":136.995665},{"n":"中京競馬場前","lat":35.061302,"lon":136.98158},{"n":"有松","lat":35.067687,"lon":136.971084},{"n":"左京山","lat":35.070553,"lon":136.960301},{"n":"鳴海","lat":35.079149,"lon":136.950096},{"n":"本星崎","lat":35.087392,"lon":136.937378},{"n":"本笠寺","lat":35.099199,"lon":136.933409},{"n":"桜(愛知)","lat":35.106062,"lon":136.934586},{"n":"呼続","lat":35.114722,"lon":136.930387},{"n":"堀田(名古屋鉄道)","lat":35.120251,"lon":136.919839},{"n":"神宮前","lat":35.125857,"lon":136.912485},{"n":"金山(愛知)","lat":35.142928,"lon":136.900517},{"n":"山王(愛知)","lat":35.15233,"lon":136.888461},{"n":"名鉄名古屋","lat":35.169252,"lon":136.884187},{"n":"栄生","lat":35.183687,"lon":136.873051},{"n":"東枇杷島","lat":35.189808,"lon":136.870168},{"n":"西枇杷島","lat":35.195015,"lon":136.865685},{"n":"二ツ杁","lat":35.194646,"lon":136.859583},{"n":"新川橋","lat":35.195701,"lon":136.851989},{"n":"須ヶ口","lat":35.198684,"lon":136.846229},{"n":"丸ノ内","lat":35.204742,"lon":136.841927},{"n":"新清洲","lat":35.211249,"lon":136.835607},{"n":"大里","lat":35.226216,"lon":136.818428},{"n":"奥田","lat":35.235412,"lon":136.810917},{"n":"国府宮","lat":35.254218,"lon":136.802963},{"n":"島氏永","lat":35.270777,"lon":136.800987},{"n":"妙興寺","lat":35.287178,"lon":136.798231},{"n":"名鉄一宮","lat":35.30154,"lon":136.797225},{"n":"今伊勢","lat":35.31836,"lon":136.789273},{"n":"石刀","lat":35.326204,"lon":136.785407},{"n":"新木曽川","lat":35.342047,"lon":136.779421},{"n":"黒田(愛知)","lat":35.350213,"lon":136.777502},{"n":"木曽川堤","lat":35.365067,"lon":136.770486},{"n":"笠松","lat":35.37466,"lon":136.764664},{"n":"岐南","lat":35.389716,"lon":136.769165},{"n":"茶所","lat":35.402048,"lon":136.768917},{"n":"加納(岐阜)","lat":35.405209,"lon":136.765984},{"n":"名鉄岐阜","lat":35.411136,"lon":136.760066}]},"meitetsu_toyokawa":{"name":"名鉄豊川線","company":"名古屋鉄道","kind":"ll","stations":[{"n":"国府(愛知)","lat":34.83752,"lon":137.328101},{"n":"八幡(愛知)","lat":34.82916,"lon":137.352113},{"n":"諏訪町","lat":34.823464,"lon":137.370479},{"n":"稲荷口","lat":34.818435,"lon":137.387703},{"n":"豊川稲荷","lat":34.821755,"lon":137.396058}]},"meitetsu_nishio":{"name":"名鉄西尾線","company":"名古屋鉄道","kind":"ll","stations":[{"n":"新安城","lat":34.986885,"lon":137.085443},{"n":"北安城","lat":34.964677,"lon":137.092146},{"n":"南安城","lat":34.951976,"lon":137.092457},{"n":"碧海古井","lat":34.93723,"lon":137.090863},{"n":"堀内公園","lat":34.927834,"lon":137.089636},{"n":"桜井(愛知)","lat":34.917477,"lon":137.088345},{"n":"南桜井(愛知)","lat":34.906302,"lon":137.07721},{"n":"米津","lat":34.892822,"lon":137.060993},{"n":"桜町前","lat":34.880107,"lon":137.062444},{"n":"西尾口","lat":34.870647,"lon":137.062661},{"n":"西尾","lat":34.863917,"lon":137.057789},{"n":"福地","lat":34.844663,"lon":137.048579},{"n":"上横須賀","lat":34.829941,"lon":137.071883},{"n":"吉良吉田","lat":34.794043,"lon":137.071017}]},"meitetsu_gamagori":{"name":"名鉄蒲郡線","company":"名古屋鉄道","kind":"ll","stations":[{"n":"吉良吉田","lat":34.794043,"lon":137.071017},{"n":"三河鳥羽","lat":34.793214,"lon":137.104984},{"n":"西幡豆","lat":34.792431,"lon":137.121271},{"n":"東幡豆","lat":34.789693,"lon":137.145645},{"n":"こどもの国(愛知)","lat":34.788791,"lon":137.162721},{"n":"西浦","lat":34.79003,"lon":137.178617},{"n":"形原","lat":34.798607,"lon":137.184594},{"n":"三河鹿島","lat":34.813313,"lon":137.189687},{"n":"蒲郡競艇場前","lat":34.825545,"lon":137.202014},{"n":"蒲郡","lat":34.823078,"lon":137.226459}]},"meitetsu_mikawa":{"name":"名鉄三河線","company":"名古屋鉄道","kind":"ll","stations":[{"n":"碧南","lat":34.874041,"lon":136.985613},{"n":"碧南中央","lat":34.887395,"lon":136.989476},{"n":"新川町(愛知)","lat":34.896619,"lon":136.990312},{"n":"北新川","lat":34.906018,"lon":136.992475},{"n":"高浜港","lat":34.921536,"lon":136.989391},{"n":"三河高浜","lat":34.930796,"lon":136.989954},{"n":"吉浜(愛知)","lat":34.946327,"lon":136.98919},{"n":"小垣江","lat":34.9639,"lon":136.995455},{"n":"刈谷市","lat":34.984803,"lon":136.993844},{"n":"刈谷","lat":34.991156,"lon":137.008878},{"n":"重原","lat":34.994824,"lon":137.023727},{"n":"知立","lat":35.006198,"lon":137.039628},{"n":"三河知立","lat":35.005741,"lon":137.0555},{"n":"三河八橋","lat":35.010913,"lon":137.077147},{"n":"若林(愛知)","lat":35.026284,"lon":137.095851},{"n":"竹村","lat":35.040067,"lon":137.11476},{"n":"土橋(愛知)","lat":35.058179,"lon":137.129572},{"n":"上挙母","lat":35.071854,"lon":137.154453},{"n":"豊田市","lat":35.087305,"lon":137.156227},{"n":"梅坪","lat":35.099654,"lon":137.162206},{"n":"越戸","lat":35.10769,"lon":137.180178},{"n":"平戸橋","lat":35.114628,"lon":137.184725},{"n":"猿投","lat":35.122613,"lon":137.178739}]},"meitetsu_toyota":{"name":"名鉄豊田線","company":"名古屋鉄道","kind":"ll","stations":[{"n":"豊田市","lat":35.087305,"lon":137.156227},{"n":"梅坪","lat":35.099654,"lon":137.162206},{"n":"上豊田","lat":35.116168,"lon":137.15535},{"n":"浄水","lat":35.121298,"lon":137.137186},{"n":"三好ヶ丘","lat":35.126918,"lon":137.111219},{"n":"黒笹","lat":35.127681,"lon":137.091365},{"n":"米野木","lat":35.123728,"lon":137.06702},{"n":"日進(愛知)","lat":35.118378,"lon":137.04878},{"n":"赤池(愛知)","lat":35.121097,"lon":137.017978}]},"meitetsu_airport":{"name":"名鉄空港線","company":"名古屋鉄道","kind":"ll","stations":[{"n":"常滑","lat":34.891167,"lon":136.834992},{"n":"りんくう常滑","lat":34.87967,"lon":136.828164},{"n":"中部国際空港","lat":34.859262,"lon":136.816382}]},"meitetsu_tokoname":{"name":"名鉄常滑線","company":"名古屋鉄道","kind":"ll","stations":[{"n":"名鉄名古屋","lat":35.169252,"lon":136.884187},{"n":"山王(愛知)","lat":35.15233,"lon":136.888461},{"n":"金山(愛知)","lat":35.142928,"lon":136.900517},{"n":"神宮前","lat":35.125857,"lon":136.912485},{"n":"豊田本町","lat":35.113586,"lon":136.910877},{"n":"道徳","lat":35.105712,"lon":136.909409},{"n":"大江(愛知)","lat":35.093258,"lon":136.912758},{"n":"大同町","lat":35.080268,"lon":136.909314},{"n":"柴田","lat":35.072774,"lon":136.909126},{"n":"名和(愛知)","lat":35.060914,"lon":136.911709},{"n":"聚楽園","lat":35.042857,"lon":136.90304},{"n":"新日鉄前","lat":35.035161,"lon":136.899491},{"n":"太田川","lat":35.020221,"lon":136.892504},{"n":"尾張横須賀","lat":35.010132,"lon":136.885655},{"n":"寺本","lat":35.000191,"lon":136.875498},{"n":"朝倉(愛知)","lat":34.993858,"lon":136.863419},{"n":"古見(愛知)","lat":34.987809,"lon":136.856673},{"n":"長浦(愛知)","lat":34.978432,"lon":136.847808},{"n":"日長","lat":34.96162,"lon":136.832152},{"n":"新舞子","lat":34.949689,"lon":136.828669},{"n":"大野町","lat":34.935441,"lon":136.827641},{"n":"西ノ口","lat":34.926759,"lon":136.82663},{"n":"蒲池(愛知)","lat":34.915408,"lon":136.825536},{"n":"榎戸(愛知)","lat":34.90489,"lon":136.82822},{"n":"多屋","lat":34.896983,"lon":136.830695},{"n":"常滑","lat":34.891167,"lon":136.834992}]},"meitetsu_kowa":{"name":"名鉄河和線","company":"名古屋鉄道","kind":"ll","stations":[{"n":"太田川","lat":35.020221,"lon":136.892504},{"n":"高横須賀","lat":35.009608,"lon":136.893696},{"n":"加木屋中ノ池","lat":35.000014,"lon":136.902462},{"n":"南加木屋","lat":34.989216,"lon":136.906853},{"n":"八幡新田","lat":34.973674,"lon":136.912578},{"n":"巽ヶ丘","lat":34.962265,"lon":136.915556},{"n":"白沢(愛知)","lat":34.955219,"lon":136.91537},{"n":"坂部","lat":34.941579,"lon":136.916562},{"n":"阿久比","lat":34.931256,"lon":136.918517},{"n":"植大","lat":34.917457,"lon":136.923448},{"n":"半田口","lat":34.909111,"lon":136.925462},{"n":"住吉町","lat":34.902042,"lon":136.925684},{"n":"知多半田","lat":34.893931,"lon":136.925954},{"n":"成岩","lat":34.886209,"lon":136.921879},{"n":"青山(愛知)","lat":34.878132,"lon":136.917},{"n":"上ゲ","lat":34.858389,"lon":136.916403},{"n":"知多武豊","lat":34.850732,"lon":136.916439},{"n":"富貴","lat":34.828823,"lon":136.917043},{"n":"河和口","lat":34.797805,"lon":136.918618},{"n":"河和","lat":34.777771,"lon":136.912528}]},"meitetsu_chita_shin":{"name":"名鉄知多新線","company":"名古屋鉄道","kind":"ll","stations":[{"n":"富貴","lat":34.828823,"lon":136.917043},{"n":"上野間","lat":34.807284,"lon":136.866854},{"n":"美浜緑苑","lat":34.80028,"lon":136.863063},{"n":"知多奥田","lat":34.787617,"lon":136.864488},{"n":"野間","lat":34.7723,"lon":136.860683},{"n":"内海(愛知)","lat":34.744631,"lon":136.875544}]},"meitetsu_chikko":{"name":"名鉄築港線","company":"名古屋鉄道","kind":"ll","stations":[{"n":"大江(愛知)","lat":35.093258,"lon":136.912758},{"n":"東名古屋港","lat":35.089091,"lon":136.899255}]},"meitetsu_seto":{"name":"名鉄瀬戸線","company":"名古屋鉄道","kind":"ll","stations":[{"n":"栄町(愛知)","lat":35.170567,"lon":136.908962},{"n":"東大手","lat":35.183727,"lon":136.908376},{"n":"清水(愛知)","lat":35.187152,"lon":136.913814},{"n":"尼ヶ坂","lat":35.187957,"lon":136.91928},{"n":"森下(愛知)","lat":35.188299,"lon":136.929657},{"n":"大曽根","lat":35.191508,"lon":136.937161},{"n":"矢田(愛知)","lat":35.193699,"lon":136.947802},{"n":"守山自衛隊前","lat":35.196258,"lon":136.957843},{"n":"瓢箪山(愛知)","lat":35.197222,"lon":136.965048},{"n":"小幡","lat":35.200216,"lon":136.975769},{"n":"喜多山(愛知)","lat":35.205099,"lon":136.987735},{"n":"大森・金城学院前","lat":35.206934,"lon":136.996465},{"n":"印場","lat":35.211085,"lon":137.011132},{"n":"旭前","lat":35.214162,"lon":137.019706},{"n":"尾張旭","lat":35.216743,"lon":137.036393},{"n":"三郷(愛知)","lat":35.216258,"lon":137.052352},{"n":"水野","lat":35.224296,"lon":137.069659},{"n":"新瀬戸","lat":35.225485,"lon":137.077639},{"n":"瀬戸市役所前","lat":35.224986,"lon":137.084177},{"n":"尾張瀬戸","lat":35.225094,"lon":137.09727}]},"meitetsu_tsushima":{"name":"名鉄津島線","company":"名古屋鉄道","kind":"ll","stations":[{"n":"須ヶ口","lat":35.198684,"lon":136.846229},{"n":"甚目寺","lat":35.195953,"lon":136.825492},{"n":"七宝","lat":35.195775,"lon":136.806413},{"n":"木田","lat":35.195328,"lon":136.787865},{"n":"青塚","lat":35.198674,"lon":136.76708},{"n":"勝幡","lat":35.195143,"lon":136.750082},{"n":"藤浪","lat":35.188911,"lon":136.738766},{"n":"津島","lat":35.177982,"lon":136.730995}]},"meitetsu_bisai":{"name":"名鉄尾西線","company":"名古屋鉄道","kind":"ll","stations":[{"n":"弥富","lat":35.114026,"lon":136.725664},{"n":"五ノ三","lat":35.129838,"lon":136.711464},{"n":"佐屋","lat":35.147552,"lon":136.716612},{"n":"日比野(名古屋鉄道)","lat":35.163258,"lon":136.728351},{"n":"津島","lat":35.177982,"lon":136.730995},{"n":"町方","lat":35.18898,"lon":136.727551},{"n":"六輪","lat":35.202395,"lon":136.729306},{"n":"渕高","lat":35.213944,"lon":136.727256},{"n":"丸渕","lat":35.222635,"lon":136.728991},{"n":"上丸渕","lat":35.233809,"lon":136.732521},{"n":"森上","lat":35.247229,"lon":136.736698},{"n":"山崎(愛知)","lat":35.256548,"lon":136.739372},{"n":"玉野","lat":35.266327,"lon":136.747982},{"n":"萩原(愛知)","lat":35.277157,"lon":136.757703},{"n":"二子","lat":35.283986,"lon":136.766268},{"n":"苅安賀","lat":35.287194,"lon":136.778275},{"n":"観音寺(愛知)","lat":35.289716,"lon":136.786191},{"n":"名鉄一宮","lat":35.30154,"lon":136.797225},{"n":"西一宮","lat":35.307603,"lon":136.791948},{"n":"開明","lat":35.31926,"lon":136.7741},{"n":"奥町","lat":35.32434,"lon":136.761092},{"n":"玉ノ井","lat":35.334887,"lon":136.757968}]},"meitetsu_inuyama":{"name":"名鉄犬山線","company":"名古屋鉄道","kind":"ll","stations":[{"n":"名鉄名古屋","lat":35.169252,"lon":136.884187},{"n":"栄生","lat":35.183687,"lon":136.873051},{"n":"東枇杷島","lat":35.189808,"lon":136.870168},{"n":"下小田井","lat":35.201878,"lon":136.870638},{"n":"中小田井","lat":35.214647,"lon":136.876772},{"n":"上小田井","lat":35.223482,"lon":136.876941},{"n":"西春","lat":35.244627,"lon":136.871235},{"n":"徳重・名古屋芸大","lat":35.256045,"lon":136.873384},{"n":"大山寺","lat":35.263508,"lon":136.874748},{"n":"岩倉(愛知)","lat":35.277972,"lon":136.873511},{"n":"石仏","lat":35.295545,"lon":136.871144},{"n":"布袋","lat":35.317135,"lon":136.872987},{"n":"江南(愛知)","lat":35.33475,"lon":136.872109},{"n":"柏森","lat":35.344807,"lon":136.900181},{"n":"扶桑","lat":35.359557,"lon":136.91597},{"n":"木津用水","lat":35.366914,"lon":136.925977},{"n":"犬山口","lat":35.374212,"lon":136.939945},{"n":"犬山","lat":35.379871,"lon":136.945536},{"n":"犬山遊園","lat":35.390331,"lon":136.946894},{"n":"新鵜沼","lat":35.396799,"lon":136.944314}]},"meitetsu_kakamigahara":{"name":"名鉄各務原線","company":"名古屋鉄道","kind":"ll","stations":[{"n":"新鵜沼","lat":35.396799,"lon":136.944314},{"n":"鵜沼宿","lat":35.400015,"lon":136.932567},{"n":"羽場(岐阜)","lat":35.40119,"lon":136.921535},{"n":"苧ヶ瀬","lat":35.403273,"lon":136.912266},{"n":"名電各務原","lat":35.402518,"lon":136.900981},{"n":"二十軒","lat":35.400098,"lon":136.889307},{"n":"三柿野","lat":35.400156,"lon":136.876084},{"n":"六軒(岐阜)","lat":35.40105,"lon":136.861554},{"n":"各務原市役所前","lat":35.400869,"lon":136.847067},{"n":"市民公園前","lat":35.400572,"lon":136.841829},{"n":"新那加","lat":35.400097,"lon":136.83386},{"n":"新加納","lat":35.39938,"lon":136.824414},{"n":"高田橋","lat":35.398383,"lon":136.811488},{"n":"手力","lat":35.398269,"lon":136.804472},{"n":"切通","lat":35.400257,"lon":136.79564},{"n":"細畑","lat":35.401637,"lon":136.785141},{"n":"田神","lat":35.411261,"lon":136.772189},{"n":"名鉄岐阜","lat":35.411136,"lon":136.760066}]},"meitetsu_hiromi":{"name":"名鉄広見線","company":"名古屋鉄道","kind":"ll","stations":[{"n":"犬山","lat":35.379871,"lon":136.945536},{"n":"富岡前","lat":35.379508,"lon":136.962112},{"n":"善師野","lat":35.389744,"lon":136.980027},{"n":"西可児","lat":35.404685,"lon":137.010616},{"n":"可児川","lat":35.41812,"lon":137.01847},{"n":"日本ライン今渡","lat":35.432302,"lon":137.036818},{"n":"新可児","lat":35.423282,"lon":137.055622},{"n":"明智(名古屋鉄道)","lat":35.433208,"lon":137.087295},{"n":"顔戸","lat":35.434522,"lon":137.105154},{"n":"御嵩口","lat":35.431281,"lon":137.121741},{"n":"御嵩","lat":35.429723,"lon":137.127527}]},"meitetsu_komaki":{"name":"名鉄小牧線","company":"名古屋鉄道","kind":"ll","stations":[{"n":"上飯田","lat":35.203845,"lon":136.929642},{"n":"味鋺","lat":35.222478,"lon":136.936113},{"n":"味美(名古屋鉄道)","lat":35.235209,"lon":136.937134},{"n":"春日井(名古屋鉄道)","lat":35.25035,"lon":136.936228},{"n":"牛山","lat":35.264014,"lon":136.931356},{"n":"間内","lat":35.271585,"lon":136.9312},{"n":"小牧口","lat":35.281717,"lon":136.927675},{"n":"小牧","lat":35.28915,"lon":136.928461},{"n":"小牧原","lat":35.300145,"lon":136.935836},{"n":"味岡","lat":35.309301,"lon":136.940304},{"n":"田県神社前","lat":35.317422,"lon":136.943675},{"n":"楽田","lat":35.330548,"lon":136.950101},{"n":"羽黒(愛知)","lat":35.351519,"lon":136.952486},{"n":"犬山","lat":35.379871,"lon":136.945536}]},"meitetsu_takehana":{"name":"名鉄竹鼻線","company":"名古屋鉄道","kind":"ll","stations":[{"n":"笠松","lat":35.37466,"lon":136.764664},{"n":"西笠松","lat":35.36906,"lon":136.757901},{"n":"柳津(岐阜)","lat":35.365114,"lon":136.73965},{"n":"南宿","lat":35.347869,"lon":136.728604},{"n":"須賀","lat":35.340192,"lon":136.726805},{"n":"不破一色","lat":35.332959,"lon":136.721897},{"n":"竹鼻","lat":35.326734,"lon":136.706399},{"n":"羽島市役所前","lat":35.321924,"lon":136.70003},{"n":"江吉良","lat":35.31543,"lon":136.699686}]},"meitetsu_hashima":{"name":"名鉄羽島線","company":"名古屋鉄道","kind":"ll","stations":[{"n":"江吉良","lat":35.31543,"lon":136.699686},{"n":"新羽島","lat":35.315471,"lon":136.686582}]},"jr_tokaido":{"name":"JR東海道本線(東京〜神戸)","company":"JR","kind":"ll","stations":[{"n":"東京","lat":35.681391,"lon":139.766103},{"n":"新橋","lat":35.666195,"lon":139.758587},{"n":"品川","lat":35.62876,"lon":139.738999},{"n":"川崎","lat":35.531311,"lon":139.697485},{"n":"横浜","lat":35.466195,"lon":139.622704},{"n":"戸塚","lat":35.400432,"lon":139.534282},{"n":"大船","lat":35.353466,"lon":139.531127},{"n":"藤沢","lat":35.338882,"lon":139.487293},{"n":"辻堂","lat":35.336847,"lon":139.447106},{"n":"茅ケ崎","lat":35.330741,"lon":139.407197},{"n":"平塚","lat":35.327647,"lon":139.349063},{"n":"大磯","lat":35.311299,"lon":139.313388},{"n":"二宮(JR)","lat":35.298644,"lon":139.256925},{"n":"国府津","lat":35.280832,"lon":139.212932},{"n":"鴨宮","lat":35.275744,"lon":139.180147},{"n":"小田原","lat":35.256225,"lon":139.155772},{"n":"早川","lat":35.238875,"lon":139.145014},{"n":"根府川","lat":35.202455,"lon":139.138504},{"n":"真鶴","lat":35.156837,"lon":139.132148},{"n":"湯河原","lat":35.146178,"lon":139.102142},{"n":"熱海","lat":35.103573,"lon":139.077679},{"n":"函南","lat":35.108773,"lon":138.970984},{"n":"三島","lat":35.126253,"lon":138.911133},{"n":"沼津","lat":35.103011,"lon":138.860104},{"n":"片浜","lat":35.11825,"lon":138.818937},{"n":"原(静岡)","lat":35.124915,"lon":138.793387},{"n":"東田子の浦","lat":35.136255,"lon":138.745441},{"n":"吉原","lat":35.143845,"lon":138.702768},{"n":"富士","lat":35.151497,"lon":138.651225},{"n":"富士川","lat":35.141119,"lon":138.618571},{"n":"新蒲原","lat":35.119599,"lon":138.608117},{"n":"蒲原","lat":35.114005,"lon":138.582752},{"n":"由比","lat":35.097108,"lon":138.552756},{"n":"興津","lat":35.052539,"lon":138.521865},{"n":"清水(静岡)","lat":35.023248,"lon":138.488958},{"n":"草薙","lat":35.002854,"lon":138.442025},{"n":"東静岡","lat":34.985256,"lon":138.413118},{"n":"静岡","lat":34.971629,"lon":138.388579},{"n":"安倍川","lat":34.940961,"lon":138.364029},{"n":"用宗","lat":34.922512,"lon":138.36006},{"n":"焼津","lat":34.872261,"lon":138.318457},{"n":"西焼津","lat":34.859824,"lon":138.28552},{"n":"藤枝","lat":34.849511,"lon":138.252748},{"n":"六合","lat":34.836436,"lon":138.203502},{"n":"島田(静岡)","lat":34.830159,"lon":138.173436},{"n":"金谷","lat":34.819049,"lon":138.125578},{"n":"菊川(静岡)","lat":34.76176,"lon":138.085648},{"n":"掛川","lat":34.769463,"lon":138.014937},{"n":"愛野(静岡)","lat":34.752257,"lon":137.961663},{"n":"袋井","lat":34.741377,"lon":137.92596},{"n":"御厨(静岡)","lat":34.718447,"lon":137.885343},{"n":"磐田","lat":34.710132,"lon":137.852244},{"n":"豊田町","lat":34.7121,"lon":137.82013},{"n":"天竜川","lat":34.716994,"lon":137.77923},{"n":"浜松","lat":34.703866,"lon":137.734759},{"n":"高塚","lat":34.690425,"lon":137.681303},{"n":"舞阪","lat":34.685701,"lon":137.626422},{"n":"弁天島","lat":34.690125,"lon":137.603058},{"n":"新居町","lat":34.694276,"lon":137.568953},{"n":"鷲津","lat":34.716819,"lon":137.546116},{"n":"新所原","lat":34.723205,"lon":137.484399},{"n":"二川","lat":34.725809,"lon":137.438966},{"n":"豊橋","lat":34.762734,"lon":137.382128},{"n":"西小坂井","lat":34.79708,"lon":137.352499},{"n":"愛知御津","lat":34.812624,"lon":137.316492},{"n":"三河大塚","lat":34.815744,"lon":137.28287},{"n":"三河三谷","lat":34.818546,"lon":137.247795},{"n":"蒲郡","lat":34.823078,"lon":137.226459},{"n":"三河塩津","lat":34.825295,"lon":137.201261},{"n":"三ヶ根","lat":34.836449,"lon":137.176348},{"n":"幸田","lat":34.859926,"lon":137.16447},{"n":"相見","lat":34.887672,"lon":137.160328},{"n":"岡崎","lat":34.925417,"lon":137.157243},{"n":"西岡崎","lat":34.946572,"lon":137.123187},{"n":"安城","lat":34.959986,"lon":137.08716},{"n":"三河安城","lat":34.96968,"lon":137.060918},{"n":"東刈谷","lat":34.97741,"lon":137.043525},{"n":"野田新町","lat":34.983526,"lon":137.028083},{"n":"刈谷","lat":34.991156,"lon":137.008878},{"n":"逢妻","lat":34.998215,"lon":136.990544},{"n":"大府","lat":35.008665,"lon":136.961727},{"n":"共和","lat":35.035245,"lon":136.954599},{"n":"南大高","lat":35.055403,"lon":136.948244},{"n":"大高","lat":35.069244,"lon":136.940242},{"n":"笠寺","lat":35.095113,"lon":136.926321},{"n":"熱田","lat":35.130028,"lon":136.910502},{"n":"金山(愛知)","lat":35.142928,"lon":136.900517},{"n":"尾頭橋","lat":35.146981,"lon":136.89102},{"n":"名古屋","lat":35.170694,"lon":136.881637},{"n":"枇杷島","lat":35.198681,"lon":136.861816},{"n":"清洲","lat":35.225406,"lon":136.834529},{"n":"稲沢","lat":35.252994,"lon":136.820942},{"n":"尾張一宮","lat":35.301765,"lon":136.797567},{"n":"木曽川","lat":35.349319,"lon":136.780726},{"n":"岐阜","lat":35.409532,"lon":136.756514},{"n":"西岐阜","lat":35.404664,"lon":136.72341},{"n":"穂積","lat":35.396345,"lon":136.693834},{"n":"大垣","lat":35.367096,"lon":136.618288},{"n":"荒尾(岐阜)","lat":35.373454,"lon":136.583276},{"n":"美濃赤坂","lat":35.386677,"lon":136.582129},{"n":"垂井","lat":35.369587,"lon":136.531246},{"n":"関ヶ原","lat":35.363726,"lon":136.470451},{"n":"柏原(滋賀)","lat":35.344593,"lon":136.402767},{"n":"近江長岡","lat":35.359307,"lon":136.373775},{"n":"醒ヶ井","lat":35.327664,"lon":136.345135},{"n":"米原","lat":35.314657,"lon":136.289992},{"n":"彦根","lat":35.272216,"lon":136.263347},{"n":"南彦根","lat":35.246097,"lon":136.248},{"n":"河瀬","lat":35.225384,"lon":136.225285},{"n":"稲枝","lat":35.203312,"lon":136.194469},{"n":"能登川","lat":35.179897,"lon":136.165987},{"n":"安土","lat":35.142465,"lon":136.1335},{"n":"近江八幡","lat":35.122765,"lon":136.102715},{"n":"篠原(滋賀)","lat":35.099203,"lon":136.071679},{"n":"野洲","lat":35.068509,"lon":136.022487},{"n":"守山(滋賀)","lat":35.050513,"lon":135.996037},{"n":"栗東","lat":35.037448,"lon":135.980083},{"n":"草津(滋賀)","lat":35.022913,"lon":135.962744},{"n":"南草津","lat":35.003855,"lon":135.947362},{"n":"瀬田(滋賀)","lat":34.987223,"lon":135.925673},{"n":"石山","lat":34.97987,"lon":135.900228},{"n":"膳所","lat":34.999373,"lon":135.880539},{"n":"大津","lat":35.002997,"lon":135.864651},{"n":"山科","lat":34.992636,"lon":135.816647},{"n":"京都","lat":34.985465,"lon":135.757748},{"n":"西大路","lat":34.981077,"lon":135.731702},{"n":"桂川(京都)","lat":34.964814,"lon":135.710391},{"n":"向日町","lat":34.954838,"lon":135.709804},{"n":"長岡京","lat":34.923483,"lon":135.700882},{"n":"山崎(京都)","lat":34.892257,"lon":135.679124},{"n":"島本","lat":34.881337,"lon":135.663385},{"n":"高槻","lat":34.8512,"lon":135.617016},{"n":"摂津富田","lat":34.837729,"lon":135.59336},{"n":"JR総持寺","lat":34.828611,"lon":135.577778},{"n":"茨木","lat":34.815091,"lon":135.56208},{"n":"千里丘","lat":34.791502,"lon":135.551512},{"n":"岸辺","lat":34.776812,"lon":135.541613},{"n":"吹田(JR)","lat":34.763209,"lon":135.523642},{"n":"東淀川","lat":34.73938,"lon":135.503915},{"n":"新大阪","lat":34.734136,"lon":135.501852},{"n":"大阪","lat":34.702398,"lon":135.495188},{"n":"塚本","lat":34.71271,"lon":135.468843},{"n":"尼崎(JR)","lat":34.731791,"lon":135.431685},{"n":"立花","lat":34.737875,"lon":135.399571},{"n":"甲子園口","lat":34.739052,"lon":135.374426},{"n":"西宮(JR)","lat":34.738985,"lon":135.348703},{"n":"さくら夙川","lat":34.739079,"lon":135.331093},{"n":"芦屋(JR)","lat":34.734207,"lon":135.307102},{"n":"甲南山手","lat":34.730616,"lon":135.292788},{"n":"摂津本山","lat":34.726661,"lon":135.27699},{"n":"住吉(JR)","lat":34.719595,"lon":135.261859},{"n":"六甲道","lat":34.714945,"lon":135.238588},{"n":"摩耶","lat":34.708667,"lon":135.225167},{"n":"灘","lat":34.705918,"lon":135.216578},{"n":"三ノ宮","lat":34.694766,"lon":135.195058},{"n":"元町(兵庫)","lat":34.689602,"lon":135.187401},{"n":"神戸(兵庫)","lat":34.679453,"lon":135.178221}]},"subway_higashiyama":{"name":"地下鉄東山線","company":"名古屋市交通局","kind":"km_uniform","total_km":20.6,"stations_only":["高畑","八田","岩塚","中村公園","中村日赤","本陣","亀島","名古屋","伏見(愛知)","栄(名古屋)","新栄町(愛知)","千種","今池(愛知)","池下","覚王山","本山(愛知)","東山公園(愛知)","星ケ丘(愛知)","一社","上社","本郷(愛知)","藤が丘(愛知)"]},"subway_meijo":{"name":"地下鉄名城線(環状)","company":"名古屋市交通局","kind":"km","stations":[{"n":"金山","km":0.0},{"n":"東別院","km":1.1},{"n":"矢場町","km":2.0},{"n":"栄","km":2.8},{"n":"久屋大通","km":3.5},{"n":"名古屋城","km":4.3},{"n":"名城公園","km":5.0},{"n":"黒川","km":6.0},{"n":"大曽根","km":7.3},{"n":"ナゴヤドーム前矢田","km":8.8},{"n":"砂田橋","km":10.4},{"n":"本山","km":11.7},{"n":"八事","km":12.9},{"n":"瑞穂運動場東","km":13.8},{"n":"総合リハビリセンター","km":14.6},{"n":"名古屋大学","km":15.3},{"n":"新瑞橋","km":17.1},{"n":"堀田","km":18.5},{"n":"熱田神宮伝馬町","km":19.4},{"n":"熱田神宮西","km":20.5},{"n":"西高蔵","km":21.5},{"n":"妙音通","km":22.7},{"n":"金山","km":26.4}]},"subway_meiko":{"name":"地下鉄名港線","company":"名古屋市交通局","kind":"km","stations":[{"n":"金山","km":0.0},{"n":"日比野","km":1.5},{"n":"六番町","km":2.6},{"n":"東海通","km":3.8},{"n":"港区役所","km":4.6},{"n":"築地口","km":5.4},{"n":"名古屋港","km":6.0}]},"subway_tsurumai":{"name":"地下鉄鶴舞線","company":"名古屋市交通局","kind":"km","stations":[{"n":"上小田井","km":0.0},{"n":"庄内緑地公園","km":1.4},{"n":"庄内通","km":2.7},{"n":"浄心","km":4.1},{"n":"浅間町","km":4.9},{"n":"丸の内","km":6.3},{"n":"伏見","km":7.0},{"n":"大須観音","km":7.8},{"n":"上前津","km":8.8},{"n":"鶴舞","km":9.7},{"n":"荒畑","km":11.0},{"n":"御器所","km":11.9},{"n":"川名","km":13.1},{"n":"いりなか","km":14.1},{"n":"八事","km":15.0},{"n":"塩釜口","km":16.4},{"n":"植田","km":17.6},{"n":"原","km":18.4},{"n":"平針","km":19.3},{"n":"赤池","km":20.4}]},"subway_sakuradori":{"name":"地下鉄桜通線","company":"名古屋市交通局","kind":"km","stations":[{"n":"太閤通","km":0.0},{"n":"名古屋","km":0.9},{"n":"国際センター","km":1.6},{"n":"丸の内","km":2.4},{"n":"久屋大通","km":3.3},{"n":"高岳","km":4.0},{"n":"車道","km":5.3},{"n":"今池","km":6.3},{"n":"吹上","km":7.4},{"n":"御器所","km":8.4},{"n":"桜山","km":9.5},{"n":"瑞穂区役所","km":10.4},{"n":"瑞穂運動場西","km":11.1},{"n":"新瑞橋","km":11.8},{"n":"桜本町","km":12.9},{"n":"鶴里","km":13.8},{"n":"野並","km":14.9},{"n":"鳴子北","km":16.0},{"n":"相生山","km":16.9},{"n":"神沢","km":18.3},{"n":"徳重","km":19.1}]},"subway_kamiiida":{"name":"地下鉄上飯田線","company":"名古屋市交通局","kind":"km","stations":[{"n":"平安通","km":0.0},{"n":"上飯田","km":0.8}]}};
+(function normalizeLines(){
+  for(const key in STATION_LINES){
+    const L=STATION_LINES[key];
+    if(L.kind==="ll"){
+      let d=0, prev=null;
+      L.stations = L.stations.map(s=>{
+        if(prev) d += haversine(prev.lat,prev.lon,s.lat,s.lon);
+        prev=s;
+        return {n:s.n, lat:s.lat, lon:s.lon, d};
+      });
+    } else if(L.kind==="km"){
+      L.stations = L.stations.map(s=>({n:s.n, lat:null, lon:null, d:s.km*1000}));
+    } else if(L.kind==="km_uniform"){
+      const names=L.stations_only, n=names.length, step=L.total_km*1000/(n-1);
+      L.stations = names.map((nm,i)=>({n:nm, lat:null, lon:null, d:i*step}));
+    }
+  }
+})();
+
+/* ════════ 2. 状態 ════════ */
+
+const S={
+  mode:MODES[1], skin:"car", unit:UNITS[0],
+  running:false, demo:false, wakeWanted:true, notifyWanted:false, voiceWanted:true,
+  v:0, P:P0, vRaw:0,
+  acc:NaN, alt:NaN, altF:NaN, altAcc:NaN, vs:0, hdg:NaN,
+  lat:NaN, lon:NaN, latP:NaN, lonP:NaN,
+  tFix:0, tPrev:0, fixCount:0, errCount:0,
+  stationary:true, stillCnt:0, qScale:1,
+  lost:true, doppler:false,
+  vMax:0, dist:0, tMove:0,
+  accelState:"idle", accelT0:0, accelBest:NaN,
+  hist:[],
+};
+
+/* ════════ 3. 加速度センサ ── 進行方向軸の自己学習 ════════
+   端末の向きは分からないので、「GPS の速度変化」と「端末が感じた
+   水平加速度」を突き合わせ、どの向きが前かを正規化 LMS で学習する。
+   自信度が上がるまでは使わない（使わなくても普通に動く）。       */
+
+const IMU={
+  ok:false, gInit:false, g:[0,0,0],
+  hNow:[0,0,0], hSum:[0,0,0], hN:0,
+  u:[0,0,0], conf:0,
+  magBuf:[], magN:24, motionStd:0, motionOk:false,
+
+  handle(e){
+    const a=e.accelerationIncludingGravity;
+    if(!a || a.x==null) return;
+    const v=[a.x,a.y,a.z];
+    if(!this.gInit){ this.g=v.slice(); this.gInit=true; this.ok=true; return; }
+    for(let i=0;i<3;i++) this.g[i]+=0.03*(v[i]-this.g[i]);
+
+    const lin=[v[0]-this.g[0], v[1]-this.g[1], v[2]-this.g[2]];
+    const gm=Math.hypot(this.g[0],this.g[1],this.g[2])||1;
+    const gh=[this.g[0]/gm,this.g[1]/gm,this.g[2]/gm];
+    const d=lin[0]*gh[0]+lin[1]*gh[1]+lin[2]*gh[2];
+    const h=[lin[0]-d*gh[0], lin[1]-d*gh[1], lin[2]-d*gh[2]];
+
+    this.hNow=h;
+    this.hSum[0]+=h[0]; this.hSum[1]+=h[1]; this.hSum[2]+=h[2]; this.hN++;
+
+    const m=Math.hypot(lin[0],lin[1],lin[2]);
+    this.magBuf.push(m);
+    if(this.magBuf.length>this.magN) this.magBuf.shift();
+    if(this.magBuf.length>=this.magN){
+      let s=0; for(const x of this.magBuf) s+=x;
+      const mu=s/this.magBuf.length;
+      let q=0; for(const x of this.magBuf) q+=(x-mu)*(x-mu);
+      this.motionStd=Math.sqrt(q/this.magBuf.length);
+      this.motionOk=true;
+    }
+  },
+
+  along(amax){
+    if(this.conf<0.35) return 0;
+    const a=this.u[0]*this.hNow[0]+this.u[1]*this.hNow[1]+this.u[2]*this.hNow[2];
+    return clamp(a,-amax,amax)*this.conf;
+  },
+
+  learn(dv, dt, amax){
+    const h=[this.hSum[0]/(this.hN||1), this.hSum[1]/(this.hN||1), this.hSum[2]/(this.hN||1)];
+    const n=this.hN; this.hSum=[0,0,0]; this.hN=0;
+    if(n<3 || !(dt>0.25) || dt>6) return;
+    if(Math.abs(dv) > amax*dt*3) return;              // 明らかな異常値では学習しない
+    const hm2=h[0]*h[0]+h[1]*h[1]+h[2]*h[2];
+    if(hm2<0.0025) return;                            // ほぼ無加速 → 学習材料なし
+    const pred=(this.u[0]*h[0]+this.u[1]*h[1]+this.u[2]*h[2])*dt;
+    const err=dv-pred;
+    for(let i=0;i<3;i++) this.u[i]+=0.09*err*h[i]/(hm2*dt+1e-6);
+    const gm=Math.hypot(this.g[0],this.g[1],this.g[2])||1;
+    const gh=[this.g[0]/gm,this.g[1]/gm,this.g[2]/gm];
+    const d=this.u[0]*gh[0]+this.u[1]*gh[1]+this.u[2]*gh[2];
+    for(let i=0;i<3;i++) this.u[i]-=d*gh[i];          // 水平面へ射影
+    const um=Math.hypot(this.u[0],this.u[1],this.u[2]);
+    if(um>1e-4){ for(let i=0;i<3;i++) this.u[i]/=um; }
+    else { this.conf*=0.7; return; }
+    const rel=Math.abs(err)/(Math.abs(dv)+0.4);
+    this.conf=clamp(this.conf*0.88+0.12*(1-clamp(rel,0,1)),0,1);
+  },
+
+  reset(){ this.conf=0; this.u=[0,0,0]; this.hSum=[0,0,0]; this.hN=0; }
+};
+
+/* ════════ 4. 計測パイプライン ════════ */
+
+function kalmanPredict(dt){
+  const a = S.running ? IMU.along(S.mode.amax) : 0;
+  S.v = Math.max(0, S.v + a*dt);
+  S.P += S.mode.q*S.qScale*dt;      // qScale は「今どれくらい揺れているか」で自動調整
+}
+function kalmanUpdate(z,R){
+  const K=S.P/(S.P+R);
+  S.v=Math.max(0, S.v + K*(z-S.v));
+  S.P=(1-K)*S.P;
+}
+
+function onFix(pos){
+  const c=pos.coords, now=pos.timestamp||Date.now();
+  S.tPrev=S.tFix; S.tFix=now;
+  const dt = S.tPrev ? clamp((now-S.tPrev)/1000, 0.05, 10) : 1;
+  S.fixCount++; S.lost=false; S.errCount=0;
+
+  S.acc = Number.isFinite(c.accuracy) ? c.accuracy : NaN;
+  S.latP=S.lat; S.lonP=S.lon; S.lat=c.latitude; S.lon=c.longitude;
+  if(Number.isFinite(c.heading) && c.heading>=0) S.hdg=c.heading;
+
+  /* 高度：水平より誤差が 2〜3 倍大きいので強めに平滑化 */
+  if(Number.isFinite(c.altitude)){
+    S.altAcc = Number.isFinite(c.altitudeAccuracy) ? c.altitudeAccuracy : NaN;
+    const prev=S.altF;
+    const a=clamp(2.5/Math.max(S.altAcc||8,2.5), 0.05, 0.45);
+    S.altF = Number.isFinite(prev) ? prev + a*(c.altitude-prev) : c.altitude;
+    S.alt=c.altitude;
+    if(Number.isFinite(prev)) S.vs = S.vs*0.8 + 0.2*((S.altF-prev)/dt*60);
+  }
+
+  /* 速度観測値：ドップラーが本命、無ければ位置差分にフォールバック */
+  let z, R;
+  const prevRaw=S.vRaw;
+  if(Number.isFinite(c.speed) && c.speed>=0){
+    z=c.speed; S.doppler=true;
+    const s=0.22+0.035*(S.acc||10); R=s*s;
+  } else if(Number.isFinite(S.latP)){
+    z=haversine(S.latP,S.lonP,S.lat,S.lon)/dt; S.doppler=false;
+    const s=(1.4*(S.acc||20))/Math.max(dt,0.5); R=s*s;   // 精度に比例して信用を落とす
+  } else {
+    z=0; S.doppler=false; R=100;
+  }
+  S.vRaw=z;
+
+  if(S.fixCount>2) IMU.learn(z-prevRaw, dt, S.mode.amax);
+
+  /* 予測とのズレ（イノベーション）を、そのズレの「想定される大きさ」で割って評価する。
+     想定内なら雑音とみなして強く平滑化し、想定外に大きければ本当に加減速していると
+     判断して即座に追従へ切り替える（上がるのは一瞬、戻るのはゆっくり）。          */
+  const innov = z - S.v;
+  const sigma = Math.sqrt(S.P + R) || 1;
+  const nis   = innov/sigma;                // ズレ ÷ 想定されるズレの大きさ
+  const need  = Math.abs(innov)/dt;         // そのズレを出すのに必要な加速度
+
+  /* 外れ値：物理的にあり得ず、かつ統計的にも驚くほど大きいときだけ弾く。
+     mode.amax をそのまま閾値にすると、新幹線のように amax が小さいモードでは
+     GPS 側の普通のノイズ（数 km/h のふらつき）まで「あり得ない加速度」として
+     弾いてしまい、観測値がほぼ全部無視されて速度が更新されなくなる。
+     ノイズで説明できる範囲（3 m/s² 程度）は最低ラインとして許容する。 */
+  const outlierAmax = Math.max(S.mode.amax, 3);
+  const outlier = need > outlierAmax && Math.abs(nis) > 3;
+  if(outlier) R *= 1 + Math.pow(need/outlierAmax, 3)*25;
+
+  /* 想定内のズレなら雑音とみなして強く平滑化し、想定外なら本当に加減速していると
+     判断して即座に追従へ切り替える（上がるのは一瞬、戻るのはゆっくり）。
+     ただしドップラー速度が取れていないときは元のズレが大きいので、絞ると
+     いつまでも実速度に追いつけなくなる。その場合は絞らない。               */
+  if(!S.doppler) S.qScale=1;
+  else if(!outlier){
+    const tgt = clamp((nis*nis-1)/4, 0.08, 1);
+    S.qScale = tgt>S.qScale ? tgt : S.qScale*0.72 + 0.28*tgt;
+  }
+
+  /* 静止判定（ヒステリシス付き）
+     止まるには「静か」が 2 回連続。発進は 1 回で即座に抜ける。
+     止まっている車が 3km/h と表示される現象を潰しつつ、発進を遅らせない。 */
+  const quiet = !IMU.motionOk || IMU.motionStd < 0.42;
+  if(S.stationary){
+    /* 発進の瞬間。止まっている間は「速度は 0」と確信していたので不確かさを潰して
+       あるが、動き出した以上その確信は無効。ここで戻さないと、発進しても数字が
+       じりじりとしか上がらない。                                            */
+    if(z > S.mode.zero*1.5){
+      S.stationary=false; S.stillCnt=0;
+      S.P=Math.max(S.P,P0); S.qScale=1;
+    }
+  } else if(z < S.mode.zero && quiet && !outlier){
+    if(++S.stillCnt>=2){ S.stationary=true; S.stillCnt=0; }
+  } else S.stillCnt=0;
+
+  if(S.stationary){ S.v=0; S.P=0.05; S.qScale=1; }
+  else kalmanUpdate(z,R);
+
+  if(S.acc<30 && S.v>S.vMax) S.vMax=S.v;
+  accelRun(now);
+}
+
+function accelRun(now){
+  const tgt=S.mode.target/3.6;
+  if(S.accelState==="idle" && S.v<0.3) S.accelState="armed";
+  else if(S.accelState==="armed" && S.v>0.4){ S.accelState="run"; S.accelT0=now; }
+  else if(S.accelState==="run"){
+    if(S.v<0.2) S.accelState="armed";
+    else if(S.v>=tgt){
+      const t=(now-S.accelT0)/1000;
+      if(!Number.isFinite(S.accelBest)||t<S.accelBest) S.accelBest=t;
+      S.accelState="done";
+    }
+  } else if(S.accelState==="done" && S.v<0.3) S.accelState="armed";
+}
+
+/* ════════ 5. 起動と権限 ════════ */
+
+let watchId=null, wakeLock=null, demoTimer=null;
+
+async function start(){
+  if(S.demo){ startDemo(); finishStart(); return; }
+  if(!("geolocation" in navigator)){ fail("このブラウザは位置情報に対応していません。",""); return; }
+
+  /* iOS はユーザー操作の中でしかモーション許可を出せない */
+  try{
+    if(typeof DeviceMotionEvent!=="undefined" && typeof DeviceMotionEvent.requestPermission==="function"){
+      const r=await DeviceMotionEvent.requestPermission();
+      if(r==="granted") window.addEventListener("devicemotion", e=>IMU.handle(e));
+    } else if(typeof DeviceMotionEvent!=="undefined"){
+      window.addEventListener("devicemotion", e=>IMU.handle(e));
+    }
+  }catch(_){ /* センサーが無くても動く */ }
+
+  try{
+    watchId=navigator.geolocation.watchPosition(onFix, onGeoError,
+      {enableHighAccuracy:true, maximumAge:0, timeout:30000});
+  }catch(_){ fail("位置情報を開始できませんでした。",""); return; }
+  finishStart();
+}
+
+function finishStart(){
+  S.running=true; S.lost=true; S.P=P0; S.qScale=1;
+  const ov=document.getElementById("overlay");
+  ov.hidden=true; ov.classList.remove("full");
+  requestWake();
+}
+
+function onGeoError(e){
+  /* 許可されていない場合だけは、ユーザーの操作が要るので止めて案内する */
+  if(e.code===1){
+    /* 説明は診断結果の一覧に任せる。ここで決め打ちの理由を書くと、
+       当てはまらない場合に矛盾したことを言ってしまう。 */
+    fail(envCheck().framed ? "埋め込み表示のままでは位置情報が使えません"
+                           : "位置情報が許可されていません", "");
+    return;
+  }
+  /* トンネル・地下・圏外による失敗は一時的なもの。watchPosition は自分で再試行を
+     続けるので計測は止めず、状態表示だけ「測位ロスト」にする。ここで止めてしまうと
+     新幹線がトンネルに入るたびにアプリが死んで、手で再開する羽目になる。        */
+  S.lost=true;
+  if(S.fixCount===0 && ++S.errCount>=2){
+    fail(e.code===3 ? "測位に時間がかかっています。" : "現在地を取得できませんでした。",
+      "屋内・地下・トンネルでは衛星が見えません。窓際か屋外でもう一度お試しください。");
+  }
+}
+
+/* ── 環境の自己診断 ────────────────────────────────────────
+   「位置情報が使えない」の原因はほぼ決まっているので、当てずっぽうで
+   案内するのではなくアプリ自身に調べさせて、該当する項目だけを出す。 */
+function envCheck(){
+  let framed=false;
+  try{ framed = window.self !== window.top; }catch(_){ framed=true; }
+  return {
+    framed,
+    https: location.protocol==="https:" || ["localhost","127.0.0.1"].includes(location.hostname),
+    hasGeo: ("geolocation" in navigator),
+  };
+}
+async function permState(){
+  try{
+    if(navigator.permissions && navigator.permissions.query)
+      return (await navigator.permissions.query({name:"geolocation"})).state;
+  }catch(_){}
+  return null;                       // iOS の Safari は permissions API に未対応
+}
+
+async function showDiag(title, detail){
+  const e=envCheck(), ps=await permState();
+  const row=(s,t,n)=>'<li class="'+s+'"><span class="mk">'
+    +(s==="ok"?"✓":s==="ng"?"!":"?")+'</span><span><b>'+t+'</b>'+n+'</span></li>';
+
+  let rows="";
+  rows += e.hasGeo ? row("ok","位置情報の機能はある","このブラウザは対応しています")
+                   : row("ng","位置情報の機能が無い","このブラウザでは使えません");
+  rows += e.https  ? row("ok","https で開いている","安全な接続です")
+                   : row("ng","https で開いていない","位置情報は https でないと動きません。ファイルを直接開いた状態も不可です");
+  rows += e.framed ? row("ng","埋め込み表示になっている","他のアプリの中に埋め込まれた画面には、ブラウザが位置情報を渡しません。<b>これが原因の可能性が高いです</b>")
+                   : row("ok","埋め込みではない","単独のページとして開かれています");
+  rows += ps==="granted" ? row("ok","このサイトへの許可","許可済みです")
+        : ps==="denied"  ? row("ng","このサイトへの許可","拒否されています。ブラウザのサイト設定で許可し直してください")
+        : ps==="prompt"  ? row("un","このサイトへの許可","まだ聞かれていません。開始すると確認が出ます")
+                         : row("un","このサイトへの許可","この端末では事前に確認できません（iPhone の Safari など）");
+
+  document.getElementById("card").innerHTML =
+    '<h2>'+title+'</h2>'
+    + (detail ? '<p class="err">'+detail+'</p>' : '')
+    + '<ul class="diag">'+rows+'</ul>'
+    + (e.framed
+        ? '<a class="start" href="'+location.href+'" target="_blank" rel="noopener">別のタブで開く</a>'
+          +'<p class="steps" style="padding-left:0;margin-top:14px">ボタンが効かないときは、下のアドレスを<b>長押し→コピー</b>して Safari のアドレス欄に貼り付けてください。埋め込みの外側で開けば位置情報が使えます。</p>'
+          +'<p class="urlbox">'+location.href+'</p>'
+        : '<button class="start" id="btnStart">もう一度試す</button>')
+    + '<ol class="steps">'
+      + '<li><b>iPhone の設定</b> → プライバシーとセキュリティ → 位置情報サービス が<b>オン</b>、さらに 設定 → アプリ → Safari → 位置情報 が<b>確認</b>か<b>許可</b>になっているか</li>'
+      + '<li>Safari のアドレスバー左の <b>ぁあ</b> → Web サイトの設定 → 位置情報 を<b>許可</b>に</li>'
+      + '<li>屋内・地下・トンネルでは衛星が見えません。<b>窓際か屋外</b>でお試しを</li>'
+    + '</ol>'
+    + '<span class="ghost" id="btnDemo" role="button" tabindex="0">GPS なしでデモを見る</span>';
+  wireCard();
+  const ov=document.getElementById("overlay");
+  ov.classList.add("full"); ov.hidden=false;
+}
+
+function fail(title, detail){ stop(); showDiag(title, detail); }
+
+function stop(){
+  S.running=false;
+  if(watchId!=null){ try{navigator.geolocation.clearWatch(watchId);}catch(_){} watchId=null; }
+  if(demoTimer){ clearInterval(demoTimer); demoTimer=null; }
+  releaseWake();
+}
+
+async function requestWake(){
+  if(!S.wakeWanted || !("wakeLock" in navigator)) return;
+  try{ wakeLock=await navigator.wakeLock.request("screen"); }catch(_){}
+}
+function releaseWake(){ try{ wakeLock && wakeLock.release(); }catch(_){} wakeLock=null; }
+document.addEventListener("visibilitychange", ()=>{
+  if(document.visibilityState==="visible" && S.running) requestWake();
+});
+
+/* デモ：実際の加減速に似た速度プロファイルを同じパイプラインへ流す */
+function startDemo(){
+  let t=0, lat=35.1709, lon=136.8815;   // 名古屋駅あたり
+  demoTimer=setInterval(()=>{
+    t+=1;
+    const top=S.mode.vmaxKmh*0.78/3.6, cyc=t%150;
+    let v;
+    if(cyc<12) v=0;
+    else if(cyc<70) v=top*(1-Math.exp(-(cyc-12)/18));
+    else if(cyc<105) v=top*(0.96+0.04*Math.sin(cyc/4));
+    else v=Math.max(0, top*(1-(cyc-105)/40));
+    v=Math.max(0, v+(Math.random()-0.5)*0.25);
+    lat += v*Math.cos(0.9)/111320;
+    lon += v*Math.sin(0.9)/(111320*Math.cos(lat*Math.PI/180));
+    onFix({timestamp:Date.now(), coords:{
+      latitude:lat, longitude:lon, accuracy:4+Math.random()*3,
+      speed:v, heading:52, altitude:14+Math.sin(t/25)*30, altitudeAccuracy:6}});
+  },1000);
+}
+
+/* ════════ 6. 描画 ════════ */
+
+const meter=document.getElementById("meter");
+const spark=document.getElementById("spark");
+const stage=document.querySelector(".stage");
+let mCtx=null,mW=0,mH=0, sCtx=null,sW=0,sH=0;
+
+function fit(cv){
+  const r=cv.getBoundingClientRect();
+  const dpr=Math.min(window.devicePixelRatio||1,3);
+  cv.width=Math.max(1,Math.round(r.width*dpr));
+  cv.height=Math.max(1,Math.round(r.height*dpr));
+  const ctx=cv.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  return [ctx,r.width,r.height];
+}
+function fitAll(){ [mCtx,mW,mH]=fit(meter); [sCtx,sW,sH]=fit(spark); }
+if(window.ResizeObserver){ new ResizeObserver(fitAll).observe(stage); }
+window.addEventListener("resize", fitAll);
+window.addEventListener("orientationchange", ()=>setTimeout(fitAll,220));
+
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+function pickSteps(range){
+  const raw=Math.max(range,1)/8;
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const n=raw/mag;
+  const major = n<=1.5?mag : n<=3?2*mag : n<=7?5*mag : 10*mag;
+  const minor = major/((major/mag)===2 ? 4 : 5);
+  return [major,minor];
+}
+
+/* 最高速度のピークホールド指標 */
+function drawPeak(c,cx,cy,R,ang,d,color){
+  const pk=S.vMax*S.unit.k;
+  if(!(pk>0.5)) return;
+  const a=ang(Math.min(pk,d.vmax));
+  c.strokeStyle=color; c.lineWidth=3; c.lineCap="butt";
+  c.beginPath();
+  c.moveTo(cx+Math.cos(a)*(R-13), cy+Math.sin(a)*(R-13));
+  c.lineTo(cx+Math.cos(a)*(R-26), cy+Math.sin(a)*(R-26));
+  c.stroke();
+}
+
+/* 丸メーター上下の余白に置く計器ラベル（モード名／ピーク／精度） */
+function dialChrome(c,w,h,d,cy,R){
+  const top=cy-R, bot=cy+R;
+  c.textAlign="center"; c.textBaseline="middle";
+  if(top>34){
+    c.fillStyle=css("--ink-3")||"#888";
+    c.font='500 13px '+F_UI;
+    c.fillText(S.mode.label, w/2, top/2);
+  }
+  if(h-bot>36){
+    const y=bot+(h-bot)/2;
+    c.fillStyle=css("--ink-3")||"#888";
+    c.font='500 12.5px '+F_UI;
+    const peak = S.vMax>0 ? "最高 "+(S.vMax*S.unit.k).toFixed(0)+" "+d.unit : "";
+    const acc  = Number.isFinite(d.acc) ? "精度 ±"+Math.round(d.acc)+" m" : "測位待ち";
+    c.fillText(peak? peak+"　·　"+acc : acc, w/2, y);
+  }
+}
+
+/* ---- 車風：アナログ丸メーター ---- */
+function drawCar(c,w,h,d){
+  const dk=isDark();
+  const face=dk?"#0E1310":"#F6F3EB", ink=dk?"#E9EFEA":"#15180F";
+  const line=dk?"#4A554E":"#A9A290", red=dk?"#FF5B4E":"#B42419";
+  const cx=w/2, cy=h*0.51, R=Math.min(w*0.47,h*0.44);
+  if(R<20) return;
+  dialChrome(c,w,h,d,cy,R);
+  const A0=Math.PI*0.75, SW=Math.PI*1.5, ang=v=>A0+SW*clamp(v/d.vmax,0,1);
+
+  const g=c.createRadialGradient(cx,cy-R*0.3,R*0.1,cx,cy,R*1.05);
+  g.addColorStop(0, dk?"#1A211C":"#FFFFFF"); g.addColorStop(1, face);
+  c.fillStyle=g; c.beginPath(); c.arc(cx,cy,R,0,TAU); c.fill();
+  c.strokeStyle=line; c.lineWidth=1.5; c.stroke();
+  c.strokeStyle=dk?"#2A332D":"#DED7C6"; c.lineWidth=6;
+  c.beginPath(); c.arc(cx,cy,R-6,0,TAU); c.stroke();
+
+  c.strokeStyle=red; c.lineWidth=4; c.globalAlpha=.85;
+  c.beginPath(); c.arc(cx,cy,R-15, ang(d.vmax*0.85), ang(d.vmax)); c.stroke();
+  c.globalAlpha=1;
+
+  const [maj,min]=pickSteps(d.vmax);
+  drawPeak(c,cx,cy,R,ang,d,dk?"#FFC94D":"#C4820A");
+  const nT=Math.round(d.vmax/min), per=Math.round(maj/min);
+  c.textAlign="center"; c.textBaseline="middle";
+  for(let i=0;i<=nT;i++){
+    const v=i*min, a=ang(v), isMaj=(i%per)===0;
+    const r1=R-13, r2=r1-(isMaj?15:7);
+    c.strokeStyle=isMaj?ink:line; c.lineWidth=isMaj?2.6:1.2;
+    c.beginPath();
+    c.moveTo(cx+Math.cos(a)*r1, cy+Math.sin(a)*r1);
+    c.lineTo(cx+Math.cos(a)*r2, cy+Math.sin(a)*r2);
+    c.stroke();
+    if(isMaj){
+      c.fillStyle=ink; c.font='500 '+Math.round(R*0.115)+'px '+F_NUM;
+      c.fillText(String(Math.round(v)), cx+Math.cos(a)*(R-44), cy+Math.sin(a)*(R-44));
+    }
+  }
+
+  c.fillStyle=dk?"#8B968E":"#7B7768";
+  c.font='500 '+Math.round(R*0.085)+'px '+F_LAB;
+  c.fillText(d.unit.toUpperCase(), cx, cy+R*0.30);
+  c.fillStyle=ink; c.font='600 '+Math.round(R*0.40)+'px '+F_NUM;
+  c.fillText(d.text, cx, cy+R*0.58);
+
+  const a=ang(d.value), L=R-20;
+  c.save(); c.translate(cx,cy); c.rotate(a);
+  c.fillStyle=red; c.beginPath();
+  c.moveTo(-R*0.16,-3.4); c.lineTo(L,-1.5); c.lineTo(L,1.5); c.lineTo(-R*0.16,3.4);
+  c.closePath(); c.fill(); c.restore();
+  c.fillStyle=dk?"#232C27":"#2B2F26"; c.beginPath(); c.arc(cx,cy,R*0.075,0,TAU); c.fill();
+  c.fillStyle=red; c.beginPath(); c.arc(cx,cy,R*0.032,0,TAU); c.fill();
+}
+
+/* ---- 電車風：運転台の白文字盤 ---- */
+function drawRail(c,w,h,d){
+  const dk=isDark();
+  const face=dk?"#B5AF9E":"#EFEBDF";   // 夜は減光した文字盤
+  const ink="#14170F", line="#7C776A", red="#B0281C";
+  const cx=w/2, cy=h*0.51, R=Math.min(w*0.46,h*0.435);
+  if(R<20) return;
+  const A0=Math.PI*0.72, SW=Math.PI*1.56, ang=v=>A0+SW*clamp(v/d.vmax,0,1);
+  dialChrome(c,w,h,d,cy,R+7);
+
+  c.fillStyle=dk?"#171D19":"#2A2E28"; c.beginPath(); c.arc(cx,cy,R+7,0,TAU); c.fill();
+  c.fillStyle=face; c.beginPath(); c.arc(cx,cy,R,0,TAU); c.fill();
+
+  const [maj,min]=pickSteps(d.vmax);
+  drawPeak(c,cx,cy,R+2,ang,d,"#C4820A");
+  const nT=Math.round(d.vmax/min), per=Math.round(maj/min);
+  c.textAlign="center"; c.textBaseline="middle";
+  for(let i=0;i<=nT;i++){
+    const v=i*min, a=ang(v), isMaj=(i%per)===0;
+    const r1=R-9, r2=r1-(isMaj?17:8);
+    c.strokeStyle=isMaj?ink:line; c.lineWidth=isMaj?3.2:1.4;
+    c.beginPath();
+    c.moveTo(cx+Math.cos(a)*r1, cy+Math.sin(a)*r1);
+    c.lineTo(cx+Math.cos(a)*r2, cy+Math.sin(a)*r2);
+    c.stroke();
+    if(isMaj){
+      c.fillStyle=ink; c.font='700 '+Math.round(R*0.125)+'px '+F_NUM;
+      c.fillText(String(Math.round(v)), cx+Math.cos(a)*(R-46), cy+Math.sin(a)*(R-46));
+    }
+  }
+
+  c.fillStyle="#4A473D"; c.font='600 '+Math.round(R*0.09)+'px '+F_LAB;
+  c.fillText(d.unit.toUpperCase(), cx, cy-R*0.30);
+
+  c.fillStyle = d.value>0.5 ? "#1E9E5A" : "#5C5A50";
+  c.beginPath(); c.arc(cx, cy+R*0.30, R*0.045, 0, TAU); c.fill();
+  c.strokeStyle="#3A382F"; c.lineWidth=1.5; c.stroke();
+
+  c.fillStyle=ink; c.font='700 '+Math.round(R*0.34)+'px '+F_NUM;
+  c.fillText(d.text, cx, cy+R*0.56);
+  c.fillStyle="#6B675B"; c.font='400 '+Math.round(R*0.062)+'px '+F_LAB;
+  c.fillText("GPS DOPPLER   Vd-1", cx, cy+R*0.76);
+
+  const a=ang(d.value), L=R-16;
+  c.save(); c.translate(cx,cy); c.rotate(a);
+  c.fillStyle=ink; c.beginPath();
+  c.moveTo(-R*0.19,-2.6); c.lineTo(L*0.80,-1.6); c.lineTo(L*0.80,1.6); c.lineTo(-R*0.19,2.6);
+  c.closePath(); c.fill();
+  c.fillStyle=red; c.beginPath();
+  c.moveTo(L*0.80,-1.6); c.lineTo(L,-1.1); c.lineTo(L,1.1); c.lineTo(L*0.80,1.6);
+  c.closePath(); c.fill(); c.restore();
+  c.fillStyle=ink; c.beginPath(); c.arc(cx,cy,R*0.055,0,TAU); c.fill();
+}
+
+/* ---- 飛行機風：PFD の縦テープ（本物に合わせて黒で固定） ---- */
+function drawPfd(c,w,h,d){
+  const bg="#050807", tape="#12181A", ink="#EDF3F0", dim="#7E8B86";
+  const grn="#37D68B", cyn="#4FD6E8", mag="#E77BD8";
+  c.fillStyle=bg; c.fillRect(0,0,w,h);
+  if(w<200||h<150){
+    c.fillStyle=ink; c.textAlign="center"; c.textBaseline="middle";
+    c.font='300 '+Math.round(Math.min(w*0.3,h*0.4))+'px '+F_NUM;
+    c.fillText(d.text,w/2,h/2); return;
+  }
+
+  const pad=Math.min(w*0.05,20), tw=Math.min(w*0.26,104);
+  const th=h*0.76, ty=(h-th)/2;
+  const vk=d.vmaxKt;
+  const span = vk<=60?40 : vk<=140?80 : vk<=280?120 : 200;
+
+  function tape2(x,val,sp,maj,min,label,colr,right,floor){
+    c.fillStyle=tape; c.fillRect(x,ty,tw,th);
+    c.strokeStyle="#28332F"; c.lineWidth=1; c.strokeRect(x+.5,ty+.5,tw-1,th-1);
+    c.save(); c.beginPath(); c.rect(x,ty,tw,th); c.clip();
+    c.textBaseline="middle";
+    const px=th/sp, v0=Number.isFinite(val)?val:0;
+    const lo=Math.max(v0-sp/2, floor), hi=v0+sp/2;
+    for(let t=Math.ceil(lo/min)*min; t<=hi; t+=min){
+      const y=ty+th/2-(t-v0)*px;
+      const isMaj=Math.abs(t/maj-Math.round(t/maj))<1e-6;
+      c.strokeStyle=isMaj?ink:dim; c.lineWidth=isMaj?2:1;
+      c.beginPath();
+      if(right){ c.moveTo(x+tw,y); c.lineTo(x+tw-(isMaj?18:10),y); }
+      else{ c.moveTo(x,y); c.lineTo(x+(isMaj?18:10),y); }
+      c.stroke();
+      if(isMaj){
+        c.fillStyle=ink; c.font='500 15px '+F_NUM;
+        c.textAlign=right?"right":"left";
+        c.fillText(String(Math.round(t)), right? x+tw-24 : x+24, y);
+      }
+    }
+    c.restore();
+    const by=ty+th/2, bh=34, bw=tw+16, bx=right? x-16 : x;
+    c.fillStyle="#000"; c.strokeStyle=colr; c.lineWidth=2;
+    c.beginPath(); c.rect(bx,by-bh/2,bw,bh); c.fill(); c.stroke();
+    c.fillStyle=colr; c.font='600 25px '+F_NUM;
+    c.textAlign="center"; c.textBaseline="middle";
+    c.fillText(Number.isFinite(val)?String(Math.round(val)):"---", bx+bw/2, by+1);
+    c.fillStyle=dim; c.font='500 10.5px '+F_LAB;
+    c.textAlign=right?"right":"left"; c.textBaseline="alphabetic";
+    c.fillText(label, right? x+tw : x, ty-9);
+  }
+
+  tape2(pad, d.valueKt, span, span/4, span/20, "SPEED KT", grn, false, 0);
+  tape2(w-pad-tw, Number.isFinite(d.altM)? d.altM*FT : NaN, 1600, 400, 100, "ALT FT", cyn, true, -1000);
+
+  /* 中央の大きな数字は、左右のテープ枠のあいだに必ず収まるまで縮める */
+  const gapW=(w-pad-tw-16)-(pad+tw+16);
+  c.textAlign="center";
+  let fs=Math.min(gapW*0.46, h*0.20);
+  c.font='300 '+Math.round(fs)+'px '+F_NUM;
+  while(fs>13 && c.measureText(d.text).width > gapW*0.94){
+    fs-=2; c.font='300 '+Math.round(fs)+'px '+F_NUM;
+  }
+  c.fillStyle=ink; c.textBaseline="alphabetic";
+  c.fillText(d.text, w/2, h*0.41);
+  c.textBaseline="middle";
+  c.fillStyle=dim; c.font='500 12px '+F_LAB; c.fillText(d.unit.toUpperCase(), w/2, h*0.46);
+
+  c.fillStyle=mag; c.font='600 17px '+F_NUM;
+  c.fillText(Number.isFinite(d.hdg)? String(Math.round(d.hdg)).padStart(3,"0")+"°" : "---°", w/2, h*0.115);
+  c.fillStyle=dim; c.font='500 10px '+F_LAB; c.fillText("TRK", w/2, h*0.062);
+
+  /* 昇降率。三角は書体に無いことがあるので図形で描く */
+  const vsf=d.vs, vy=h*0.87;
+  c.fillStyle=Math.abs(vsf)>10?cyn:dim; c.font='500 13px '+F_NUM;
+  const vtxt=(Number.isFinite(vsf)?Math.abs(Math.round(vsf)):"—")+" FT/MIN";
+  const vw=c.measureText(vtxt).width;
+  c.textAlign="left"; c.fillText(vtxt, w/2-vw/2+9, vy);
+  if(Number.isFinite(vsf) && Math.abs(vsf)>10){
+    const ax=w/2-vw/2-4, up=vsf>0;
+    c.beginPath();
+    c.moveTo(ax, vy+(up?-5:5)); c.lineTo(ax-5, vy+(up?4:-4)); c.lineTo(ax+5, vy+(up?4:-4));
+    c.closePath(); c.fill();
+  }
+  c.textAlign="center";
+}
+
+/* ---- デジタル ---- */
+function drawDigital(c,w,h,d){
+  const ink=css("--ink")||"#111", dim=css("--ink-3")||"#888";
+  const acc=css("--accent")||"#0E7C4F", line=css("--line")||"#ccc";
+  c.textAlign="center";
+  c.fillStyle=ink; c.font='300 '+Math.round(Math.min(w*0.52,h*0.62))+'px '+F_NUM;
+  c.textBaseline="alphabetic"; c.fillText(d.text, w/2, h*0.57);
+  c.textBaseline="middle";
+  c.fillStyle=dim; c.font='500 '+Math.round(Math.min(w*0.045,17))+'px '+F_LAB;
+  c.fillText(d.unit.toUpperCase(), w/2, h*0.69);
+
+  const bw=Math.min(w*0.72,420), bx=(w-bw)/2, by=h*0.82;
+  c.lineCap="round";
+  c.strokeStyle=line; c.lineWidth=2;
+  c.beginPath(); c.moveTo(bx,by); c.lineTo(bx+bw,by); c.stroke();
+  const p=clamp(d.value/d.vmax,0,1);
+  c.strokeStyle=acc; c.beginPath(); c.moveTo(bx,by); c.lineTo(bx+bw*p,by); c.stroke();
+  c.fillStyle=acc; c.beginPath(); c.arc(bx+bw*p,by,4.5,0,TAU); c.fill();
+
+  c.fillStyle=dim; c.font='500 11px '+F_NUM; c.textBaseline="top";
+  c.textAlign="left";  c.fillText("0", bx, by+9);
+  c.textAlign="right"; c.fillText(String(Math.round(d.vmax)), bx+bw, by+9);
+
+  c.textAlign="center"; c.textBaseline="middle";
+  c.font='500 12px '+F_LAB;
+  c.fillText(Number.isFinite(d.acc)? "± "+d.acc.toFixed(0)+" m" : "測位待ち", w/2, h*0.20);
+}
+
+/* ---- 直近 60 秒のトレンド（単系列・端点強調） ---- */
+function drawSpark(){
+  if(!sCtx||sW<40) return;
+  const c=sCtx; c.clearRect(0,0,sW,sH);
+  const now=Date.now();
+  const pts=[]; for(const p of S.hist) if(now-p.t<=60000) pts.push(p);
+  const x0=80, x1=sW-12, y0=8, y1=sH-8;
+  c.strokeStyle=css("--line")||"#ccc"; c.lineWidth=1;
+  c.beginPath(); c.moveTo(x0,y1+.5); c.lineTo(x1,y1+.5); c.stroke();
+  if(pts.length<2 || x1-x0<20) return;
+  let vm=0; for(const p of pts) if(p.v>vm) vm=p.v;
+  vm=Math.max(vm, S.mode.vmaxKmh/3.6*0.12);
+  const X=t=>x1-(now-t)/60000*(x1-x0), Y=v=>y1-(v/vm)*(y1-y0);
+  c.strokeStyle=css("--accent")||"#0E7C4F"; c.lineWidth=2;
+  c.lineJoin="round"; c.lineCap="round";
+  c.beginPath();
+  for(let i=0;i<pts.length;i++){ const x=X(pts[i].t), y=Y(pts[i].v); i?c.lineTo(x,y):c.moveTo(x,y); }
+  c.stroke();
+  const last=pts[pts.length-1];
+  c.fillStyle=css("--accent")||"#0E7C4F";
+  c.beginPath(); c.arc(X(last.t), Y(last.v), 3, 0, TAU); c.fill();
+}
+
+/* ════════ 7. メインループ ════════ */
+
+let lastFrame=performance.now(), lastHist=0, lastStats=0;
+
+function frame(now){
+  const dt=Math.min((now-lastFrame)/1000, 0.2);
+  lastFrame=now;
+
+  if(S.running){
+    kalmanPredict(dt);
+    if(S.tFix && Date.now()-S.tFix>6000){ S.lost=true; S.P=Math.min(S.P+dt*2,50); }
+    if(S.v>0.5 && !S.stationary){
+      S.dist += S.v*dt;          // 位置の差分を足すより安定するので、速度を積分する
+      S.tMove += dt;
+    }
+    if(now-lastHist>250){
+      lastHist=now; S.hist.push({t:Date.now(), v:S.v});
+      if(S.hist.length>320) S.hist.shift();
+    }
+  }
+
+  render();
+  if(now-lastStats>200){ lastStats=now; paintStats(); rtUpdate(); }
+  requestAnimationFrame(frame);
+}
+
+function render(){
+  if(!mCtx||mW<10||mH<10) return;
+  const u=S.unit;
+  const d={
+    value:S.v*u.k, valueKt:S.v*KT,
+    vmax:S.mode.vmaxKmh/3.6*u.k, vmaxKt:S.mode.vmaxKmh/3.6*KT,
+    unit:u.label, text:(S.v*u.k).toFixed(u.key==="ms"?1:0),
+    acc:S.acc, altM:S.altF, vs:S.vs*FT, hdg:S.hdg,
+  };
+  mCtx.clearRect(0,0,mW,mH);
+  if(S.skin==="car") drawCar(mCtx,mW,mH,d);
+  else if(S.skin==="rail") drawRail(mCtx,mW,mH,d);
+  else if(S.skin==="pfd") drawPfd(mCtx,mW,mH,d);
+  else drawDigital(mCtx,mW,mH,d);
+  drawSpark();
+}
+
+
+/* ════════ 8b. 次の駅トラッキング ════════
+   会社→路線→駅→方向 の順にユーザーが選ぶと、以降は自動で
+   「次の駅」「残り距離」「到着予想」を更新する。
+   緯度経度がある路線(名鉄・JR)はGPSとの直線距離を使い、
+   地下鉄などGPSが入りにくい路線は、既に計算済みの走行距離(S.dist)を
+   使ったオドメーター方式で進み具合を推定する。                    */
+
+const RT = { lineKey:null, idx:null, dir:1, notified:false, odoBase:0, lastAdvance:0, remain:NaN, eta:NaN };
+
+function rtLine(){ return RT.lineKey ? STATION_LINES[RT.lineKey] : null; }
+function rtStations(){ const L=rtLine(); return L ? L.stations : null; }
+function rtCur(){ const st=rtStations(); return (st && RT.idx!=null) ? st[RT.idx] : null; }
+function rtNext(){
+  const st=rtStations(); if(!st || RT.idx==null) return null;
+  const j=RT.idx+RT.dir;
+  return (j>=0 && j<st.length) ? st[j] : null;
+}
+
+function rtStart(lineKey, idx, dir){
+  RT.lineKey=lineKey; RT.idx=idx; RT.dir=dir;
+  RT.notified=false; RT.odoBase=S.dist; RT.lastAdvance=S.tMove;
+  save(); renderEta();
+}
+function rtStop(){
+  RT.lineKey=null; RT.idx=null;
+  save(); renderEta();
+}
+
+function rtUpdate(){
+  const L=rtLine();
+  if(!L){ return; }
+  const cur=rtCur(), next=rtNext();
+  if(!cur){ return; }
+  if(!next){ RT.remain=NaN; RT.eta=NaN; renderEta(); return; }
+
+  const segLen = Math.abs(next.d - cur.d);
+  const haveGPS = L.kind==="ll" && S.running && !S.lost && Number.isFinite(S.lat) && (!Number.isFinite(S.acc) || S.acc<150);
+  let remain;
+  if(haveGPS) remain = haversine(S.lat, S.lon, next.lat, next.lon);
+  else remain = Math.max(0, segLen - (S.dist - RT.odoBase));
+
+  RT.remain = remain;
+  RT.eta = (S.v>0.5) ? remain/S.v : NaN;
+
+  const arrivedGPS = haveGPS && remain<60;
+  const arrivedOdo = !haveGPS && (S.dist-RT.odoBase) >= Math.max(segLen-25, segLen*0.9);
+  if((arrivedGPS || arrivedOdo) && (S.tMove-RT.lastAdvance)>5){
+    /* 到着したのは cur ではなく next。到着後は idx を進め、この tick の
+       「まもなく」判定は行わない(古い next を参照した二重アナウンスを防ぐため、
+       次の tick で新しい区間を正しく評価させる)。                      */
+    const arrivedName=next.n;
+    RT.idx += RT.dir; RT.odoBase=S.dist; RT.notified=false; RT.lastAdvance=S.tMove;
+    speakArrived(arrivedName);
+    save();
+    renderEta();
+    return;
+  }
+
+  const soon = Number.isFinite(remain) && (remain<600 || (Number.isFinite(RT.eta) && RT.eta<75));
+  if(soon && !RT.notified){ RT.notified=true; announceSoon(next.n); }
+
+  renderEta();
+}
+
+function fmtEta(sec){
+  sec=Math.max(0,Math.round(sec));
+  const m=Math.floor(sec/60), s=sec%60;
+  return m>0 ? (m+"分"+String(s).padStart(2,"0")+"秒") : (s+"秒");
+}
+function fmtDist(m){
+  if(!Number.isFinite(m)) return "—";
+  return m>=1000 ? (m/1000).toFixed(1)+" km" : Math.round(m)+" m";
+}
+
+function renderEta(){
+  const bar=$("etaBar"); if(!bar) return;
+  const L=rtLine();
+  if(!L || RT.idx==null){ bar.hidden=true; return; }
+  bar.hidden=false;
+  const cur=rtCur(), next=rtNext();
+  $("etaLine").textContent=L.name;
+  if(!next){
+    $("etaNextLabel").textContent="終点";
+    $("etaNext").textContent=cur?cur.n:"";
+    $("etaDist").textContent="到着";
+    $("etaTime").textContent="";
+    $("etaFill").style.width="100%";
+    return;
+  }
+  $("etaNextLabel").textContent="次は";
+  $("etaNext").textContent=next.n;
+  $("etaDist").textContent=fmtDist(RT.remain);
+  $("etaTime").textContent = Number.isFinite(RT.eta) ? ("約"+fmtEta(RT.eta))
+                             : (S.running && S.v<=0.5 ? "停車中" : "—");
+  const segLen=Math.abs(next.d-cur.d);
+  const p = (segLen>0 && Number.isFinite(RT.remain)) ? clamp(1-(RT.remain/segLen),0,1) : 0;
+  $("etaFill").style.width=(p*100).toFixed(0)+"%";
+}
+
+/* ---- 音声(SpeechSynthesis)・通知(Notification)・画面上の帯 ---- */
+let VOICE_JA=null;
+function pickVoice(){
+  if(!("speechSynthesis" in window)) return null;
+  const vs=speechSynthesis.getVoices()||[];
+  return vs.find(v=>v.lang==="ja-JP") || vs.find(v=>v.lang && v.lang.indexOf("ja")===0) || null;
+}
+if("speechSynthesis" in window){
+  try{ speechSynthesis.onvoiceschanged=()=>{ VOICE_JA=pickVoice(); }; VOICE_JA=pickVoice(); }catch(_){}
+}
+function speak(text){
+  if(!S.voiceWanted || !("speechSynthesis" in window)) return;
+  try{
+    speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(text);
+    u.lang="ja-JP"; if(VOICE_JA) u.voice=VOICE_JA; u.rate=0.95;
+    speechSynthesis.speak(u);
+  }catch(_){}
+}
+function notify(title, body){
+  if(!S.notifyWanted || !("Notification" in window)) return;
+  if(Notification.permission!=="granted") return;
+  try{ new Notification(title, {body, tag:"vd-station"}); }catch(_){}
+}
+async function requestNotifyPerm(){
+  if(!("Notification" in window)) return "unsupported";
+  if(Notification.permission==="granted") return "granted";
+  try{ return await Notification.requestPermission(); }catch(_){ return "denied"; }
+}
+let toastTimer=null;
+function showToast(msg){
+  const t=$("toast"); if(!t) return;
+  t.textContent=msg; t.hidden=false;
+  requestAnimationFrame(()=>t.classList.add("show"));
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{ t.classList.remove("show"); setTimeout(()=>{ t.hidden=true; },300); }, 6000);
+}
+function announceSoon(name){
+  showToast("まもなく "+name+" です");
+  speak("まもなく、"+name+"、"+name+"です。");
+  notify("まもなく到着", name+" にまもなく到着します。");
+}
+function speakArrived(name){
+  showToast(name+" に到着しました");
+  speak(name+"に到着しました。");
+}
+
+/* ---- 会社→路線→駅 選択シート ---- */
+const COMPANIES=[{key:"名古屋鉄道",label:"名鉄"},{key:"名古屋市交通局",label:"地下鉄"},{key:"JR",label:"JR"}];
+let pickCompany=null, pickLineKey=null;
+
+function buildCompanyOpts(){
+  const host=$("companyOpts"); if(!host) return;
+  host.innerHTML="";
+  COMPANIES.forEach(c=>{
+    const b=document.createElement("button");
+    b.className="opt"; b.innerHTML="<b>"+c.label+"</b>";
+    b.setAttribute("aria-pressed", String(pickCompany===c.key));
+    b.onclick=()=>{
+      pickCompany=c.key; pickLineKey=null;
+      for(const ch of host.children) ch.setAttribute("aria-pressed","false");
+      b.setAttribute("aria-pressed","true");
+      buildLineList(); clearStationList();
+    };
+    host.appendChild(b);
+  });
+}
+function buildLineList(){
+  const host=$("lineList"); if(!host) return;
+  host.innerHTML="";
+  if(!pickCompany){ host.innerHTML='<p class="hint">会社を選んでください</p>'; return; }
+  const entries=Object.keys(STATION_LINES).filter(k=>STATION_LINES[k].company===pickCompany);
+  if(!entries.length){ host.innerHTML='<p class="hint">見つかりません</p>'; return; }
+  entries.forEach(key=>{
+    const L=STATION_LINES[key];
+    const b=document.createElement("button");
+    b.className="stitem";
+    b.innerHTML="<b>"+L.name+"</b><span>"+L.stations.length+"駅</span>";
+    b.setAttribute("aria-pressed", String(pickLineKey===key));
+    b.onclick=()=>{
+      pickLineKey=key;
+      for(const ch of host.children) ch.setAttribute("aria-pressed","false");
+      b.setAttribute("aria-pressed","true");
+      const sIn=$("stSearch"); sIn.disabled=false; sIn.value="";
+      buildStationList("");
+      $("dirGrp").hidden=true;
+    };
+    host.appendChild(b);
+  });
+}
+function clearStationList(){
+  $("stationList").innerHTML='<p class="hint">路線を選んでください</p>';
+  const sIn=$("stSearch"); sIn.disabled=true; sIn.value="";
+  $("dirGrp").hidden=true;
+}
+function buildStationList(filter){
+  const host=$("stationList"); if(!host) return;
+  host.innerHTML="";
+  const L=STATION_LINES[pickLineKey]; if(!L) return;
+  const f=(filter||"").trim();
+  L.stations.forEach((st,i)=>{
+    if(f && st.n.indexOf(f)===-1) return;
+    const b=document.createElement("button");
+    b.className="stitem"; b.innerHTML="<b>"+st.n+"</b>";
+    b.onclick=()=> pickDirection(pickLineKey, i);
+    host.appendChild(b);
+  });
+  if(!host.children.length) host.innerHTML='<p class="hint">見つかりません</p>';
+}
+function pickDirection(lineKey, idx){
+  const L=STATION_LINES[lineKey], st=L.stations;
+  const grp=$("dirGrp"), host=$("dirBtns");
+  host.innerHTML="";
+  const opts=[];
+  if(idx+1<st.length) opts.push({dir:1, label:st[idx+1].n});
+  if(idx-1>=0) opts.push({dir:-1, label:st[idx-1].n});
+  if(!opts.length){ grp.hidden=true; return; }
+  opts.forEach(o=>{
+    const b=document.createElement("button");
+    b.className="opt"; b.innerHTML="<b>→ "+o.label+"</b><span>方面</span>";
+    b.onclick=()=>{ rtStart(lineKey, idx, o.dir); $("routeSheet").hidden=true; };
+    host.appendChild(b);
+  });
+  grp.hidden=false;
+  grp.scrollIntoView({behavior:"smooth", block:"nearest"});
+}
+
+const $=id=>document.getElementById(id);
+
+function paintStats(){
+  const u=S.unit, un=' <small>'+u.label+'</small>';
+  $("sMax").innerHTML = S.vMax>0 ? (S.vMax*u.k).toFixed(0)+un : "—";
+  const avg = S.tMove>2 ? S.dist/S.tMove : NaN;
+  $("sAvg").innerHTML = Number.isFinite(avg) ? (avg*u.k).toFixed(0)+un : "—";
+  $("sDist").innerHTML = S.dist>=1000 ? (S.dist/1000).toFixed(2)+' <small>km</small>'
+                       : S.dist>0 ? Math.round(S.dist)+' <small>m</small>' : "—";
+  const t=Math.floor(S.tMove);
+  $("sTime").textContent = Math.floor(t/60)+":"+String(t%60).padStart(2,"0");
+  $("sAlt").innerHTML = Number.isFinite(S.altF)? Math.round(S.altF)+' <small>m</small>' : "—";
+  $("sVs").innerHTML = Number.isFinite(S.vs)&&Math.abs(S.vs)>1
+      ? (S.vs>0?"+":"")+Math.round(S.vs)+' <small>m/分</small>' : "—";
+  $("sHdg").textContent = Number.isFinite(S.hdg)? COMPASS16[Math.round(S.hdg/22.5)%16] : "—";
+  $("kAcc").textContent = "0→"+S.mode.target;
+  $("sAccel").innerHTML = Number.isFinite(S.accelBest) ? S.accelBest.toFixed(1)+' <small>秒</small>'
+      : (S.accelState==="run" ? ((Date.now()-S.accelT0)/1000).toFixed(1)+' <small>秒</small>' : "—");
+
+  let cls="", label;
+  if(!S.running) label="待機中";
+  else if(S.demo){ cls="warn"; label="デモ走行"; }
+  else if(S.lost||!S.fixCount){
+    cls="bad";
+    label = S.fixCount ? "測位ロスト "+Math.min(999,Math.round((Date.now()-S.tFix)/1000))+"秒"
+                       : "衛星を探索中";
+  }
+  else{
+    const a=S.acc;
+    cls = a<12?"good" : a<40?"warn" : "bad";
+    label = "±"+Math.round(a)+"m "+(S.doppler?"ドップラー":"位置差分")+(IMU.conf>0.35?" +慣性":"");
+  }
+  const dot=$("fixDot"), txt=$("fixText");
+  const nc="dot "+cls;
+  if(dot.className!==nc) dot.className=nc;
+  if(txt.textContent!==label) txt.textContent=label;
+}
+
+/* ════════ 8. UI ════════ */
+
+const rail=$("rail"), sheet=$("sheet"), routeSheet=$("routeSheet");
+
+MODES.forEach(m=>{
+  const b=document.createElement("button");
+  b.className="chip"; b.textContent=m.label;
+  b.setAttribute("aria-pressed", String(m===S.mode));
+  b.onclick=()=>{
+    S.mode=m; IMU.reset(); S.P=P0; S.accelBest=NaN; S.accelState="idle";
+    for(let i=0;i<rail.children.length;i++)
+      rail.children[i].setAttribute("aria-pressed", String(MODES[i]===m));
+    save();
+  };
+  rail.appendChild(b);
+});
+
+function buildOpts(host, items, get, set){
+  host.innerHTML="";
+  items.forEach(it=>{
+    const b=document.createElement("button");
+    b.className="opt";
+    b.innerHTML = it.sub ? "<b>"+it.name+"</b><span>"+it.sub+"</span>" : "<b>"+it.label+"</b>";
+    b.setAttribute("aria-pressed", String(get()===it.key));
+    b.onclick=()=>{
+      set(it);
+      for(let i=0;i<host.children.length;i++)
+        host.children[i].setAttribute("aria-pressed", String(get()===items[i].key));
+      save();
+    };
+    host.appendChild(b);
+  });
+}
+buildOpts($("skinOpts"), SKINS, ()=>S.skin, it=>{ S.skin=it.key; });
+buildOpts($("unitOpts"), UNITS, ()=>S.unit.key, it=>{ S.unit=it; });
+
+function wireCard(){
+  const s=$("btnStart"), d=$("btnDemo");
+  if(s) s.onclick=()=>start();
+  if(d){
+    const go=()=>{ S.demo=true; $("swDemo").setAttribute("aria-pressed","true"); start(); };
+    d.onclick=go;
+    d.onkeydown=e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); go(); } };
+  }
+}
+wireCard();
+
+/* 埋め込み表示のときは、押して失敗する前に逃げ道を出しておく */
+if(envCheck().framed){
+  const a=document.createElement("a");
+  a.className="ghost"; a.href=location.href; a.target="_blank"; a.rel="noopener";
+  a.style.marginLeft="14px"; a.textContent="別のタブで開く";
+  const d=$("btnDemo"); if(d) d.insertAdjacentElement("afterend", a);
+}
+
+$("btnDiag").onclick=()=>{
+  sheet.hidden=true;
+  showDiag("位置情報が使えない原因を調べました","");
+};
+
+$("btnSettings").onclick=()=>{
+  sheet.hidden=false;
+  const p=sheet.querySelector(".panel"); if(p) p.scrollTop=0;
+};
+$("btnClose").onclick=()=>{ sheet.hidden=true; };
+sheet.onclick=e=>{ if(e.target===sheet) sheet.hidden=true; };
+
+/* ---- 次の駅シート ---- */
+buildCompanyOpts();
+$("btnRoute").onclick=()=>{
+  routeSheet.hidden=false;
+  const p=routeSheet.querySelector(".panel"); if(p) p.scrollTop=0;
+};
+$("btnRtClose").onclick=()=>{ routeSheet.hidden=true; };
+routeSheet.onclick=e=>{ if(e.target===routeSheet) routeSheet.hidden=true; };
+$("stSearch").addEventListener("input", e=> buildStationList(e.target.value));
+$("etaInfo").onclick=()=>{ routeSheet.hidden=false; };
+$("etaMetrics").onclick=()=>{ routeSheet.hidden=false; };
+$("btnEtaStop").onclick=(e)=>{ e.stopPropagation(); rtStop(); };
+
+const swNotify=$("swNotify"), swVoice=$("swVoice");
+swNotify.onclick=async ()=>{
+  if(!S.notifyWanted){
+    const r=await requestNotifyPerm();
+    if(r==="granted"){ S.notifyWanted=true; }
+    else { S.notifyWanted=false; showToast(r==="unsupported" ? "この端末は通知に対応していません" : "通知が許可されませんでした"); }
+  } else {
+    S.notifyWanted=false;
+  }
+  swNotify.setAttribute("aria-pressed", String(S.notifyWanted));
+  save();
+};
+swVoice.onclick=()=>{
+  S.voiceWanted=!S.voiceWanted;
+  swVoice.setAttribute("aria-pressed", String(S.voiceWanted));
+  save();
+};
+$("btnRtTest").onclick=()=>{
+  showToast("まもなく テスト駅 です");
+  speak("まもなく、テスト、テスト駅です。");
+  notify("まもなく到着（テスト）","テスト駅 にまもなく到着します。");
+};
+document.addEventListener("keydown", e=>{ if(e.key==="Escape"){ sheet.hidden=true; routeSheet.hidden=true; } });
+
+const swWake=$("swWake"), swDemo=$("swDemo");
+swWake.onclick=()=>{
+  S.wakeWanted=!S.wakeWanted;
+  swWake.setAttribute("aria-pressed", String(S.wakeWanted));
+  S.wakeWanted? requestWake() : releaseWake();
+  save();
+};
+swDemo.onclick=()=>{
+  S.demo=!S.demo;
+  swDemo.setAttribute("aria-pressed", String(S.demo));
+  if(S.running){ stop(); resetStats(); start(); }
+};
+
+function resetStats(){
+  S.vMax=0; S.dist=0; S.tMove=0; S.hist=[];
+  S.accelBest=NaN; S.accelState="idle"; S.P=P0; S.v=0;
+  S.latP=NaN; S.lonP=NaN; S.errCount=0; IMU.reset();
+}
+$("btnReset").onclick=()=>{ resetStats(); sheet.hidden=true; };
+
+/* 設定の保存（この端末のブラウザのみ／失敗しても動作に影響しない） */
+function save(){
+  try{ localStorage.setItem("vd", JSON.stringify(
+    {mode:S.mode.key, skin:S.skin, unit:S.unit.key, wake:S.wakeWanted,
+     notify:S.notifyWanted, voice:S.voiceWanted,
+     rt: (RT.lineKey!=null && RT.idx!=null) ? {line:RT.lineKey, idx:RT.idx, dir:RT.dir} : null
+    })); }catch(_){}
+}
+function load(){
+  try{
+    const o=JSON.parse(localStorage.getItem("vd")||"{}");
+    const m=MODES.find(x=>x.key===o.mode); if(m) S.mode=m;
+    if(SKINS.some(x=>x.key===o.skin)) S.skin=o.skin;
+    const u=UNITS.find(x=>x.key===o.unit); if(u) S.unit=u;
+    if(typeof o.wake==="boolean") S.wakeWanted=o.wake;
+    if(typeof o.notify==="boolean") S.notifyWanted = (o.notify && "Notification" in window && Notification.permission==="granted");
+    if(typeof o.voice==="boolean") S.voiceWanted=o.voice;
+    if(o.rt && STATION_LINES[o.rt.line] && STATION_LINES[o.rt.line].stations[o.rt.idx]!=null){
+      RT.lineKey=o.rt.line; RT.idx=o.rt.idx; RT.dir=o.rt.dir||1;
+      RT.odoBase=S.dist; RT.notified=false; RT.lastAdvance=S.tMove;
+    }
+  }catch(_){}
+  for(let i=0;i<rail.children.length;i++)
+    rail.children[i].setAttribute("aria-pressed", String(MODES[i]===S.mode));
+  const so=$("skinOpts").children, uo=$("unitOpts").children;
+  for(let i=0;i<so.length;i++) so[i].setAttribute("aria-pressed", String(SKINS[i].key===S.skin));
+  for(let i=0;i<uo.length;i++) uo[i].setAttribute("aria-pressed", String(UNITS[i].key===S.unit.key));
+  swWake.setAttribute("aria-pressed", String(S.wakeWanted));
+  swNotify.setAttribute("aria-pressed", String(S.notifyWanted));
+  swVoice.setAttribute("aria-pressed", String(S.voiceWanted));
+  renderEta();
+}
+load();
+
+/* 動作確認用の読み取り専用フック */
+window.vd={ get speed(){return S.v;}, get raw(){return S.vRaw;},
+            get acc(){return S.acc;}, get imu(){return IMU.conf;},
+            get still(){return S.stationary;},
+            get route(){ return RT.lineKey ? {line:RT.lineKey, cur:rtCur(), next:rtNext(), remain:RT.remain, eta:RT.eta} : null; } };
+
+fitAll();
+if(document.fonts && document.fonts.ready) document.fonts.ready.then(fitAll).catch(()=>{});
+paintStats();
+requestAnimationFrame(frame);
+
+})();
+</script>
+
+</body>
+</html>
