@@ -53,7 +53,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
 
 .app{
-  height:100dvh; display:grid;
+  height:100dvh; display:grid; overflow-x:hidden;
   grid-template-rows:auto auto minmax(0,1fr) auto auto auto;
   padding:env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
 }
@@ -62,11 +62,16 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
    要素が1行ずつ繰り上がり、可変(1fr)行の割り当てが崩れてレイアウトが
    壊れるため、各子要素の行を固定する。                              */
 .bar{grid-row:1}
-.eta{grid-row:2}
+.eta{grid-row:2; min-width:0}
 .stage{grid-row:3}
 .trend{grid-row:4}
 .stats{grid-row:5}
 .rail{grid-row:6}
+/* grid/flexの子要素は既定で min-width:auto（中身の幅より縮まない）ため、
+   横スクロールする駅ドット図(.diagram)がその分だけ親を押し広げてしまい、
+   画面全体が右にズレて見える不具合があった。min-width:0 を明示して、
+   はみ出す分は必ず .diagram 自身の内側でスクロールさせるようにする。   */
+html,body{overflow-x:hidden}
 
 .bar{display:flex;align-items:center;gap:10px;padding:10px 14px 8px;border-bottom:1px solid var(--line)}
 .brand{display:flex;align-items:baseline;gap:8px;min-width:0}
@@ -254,7 +259,7 @@ a.start{text-decoration:none}
 .eta .fill{position:absolute;left:0;top:0;bottom:0;background:var(--line-accent);transition:width .4s linear}
 
 /* ── 駅ドット図(実際の電車の案内表示のような路線図) ── */
-.diagram{display:flex;align-items:flex-start;gap:0;padding:12px 14px 10px;overflow-x:auto;scrollbar-width:none}
+.diagram{display:flex;align-items:flex-start;gap:0;padding:12px 14px 10px;overflow-x:auto;scrollbar-width:none;min-width:0}
 .diagram::-webkit-scrollbar{display:none}
 .dstop{flex:none;display:flex;flex-direction:column;align-items:center;width:56px;position:relative}
 .dstop .dline{position:absolute;top:8px;left:-28px;width:56px;height:2px;background:var(--line);z-index:0}
@@ -541,7 +546,7 @@ const S={
   lost:true, doppler:false,
   vMax:0, dist:0, tMove:0,
   accelState:"idle", accelT0:0, accelBest:NaN,
-  hist:[],
+  hist:[], vDisp:0,
 };
 
 /* ════════ 3. 加速度センサ ── 進行方向軸の自己学習 ════════
@@ -849,7 +854,17 @@ async function requestWake(){
 }
 function releaseWake(){ try{ wakeLock && wakeLock.release(); }catch(_){} wakeLock=null; }
 document.addEventListener("visibilitychange", ()=>{
-  if(document.visibilityState==="visible" && S.running) requestWake();
+  if(document.visibilityState==="visible"){
+    /* バックグラウンドから戻った直後は、アドレスバーの表示/非表示などで
+       画面サイズがわずかに変わっていたり、裏で止まっていた描画ループが
+       一瞬古いサイズのまま次のフレームを描いてズレて見えることがある。
+       戻った瞬間にキャンバスのサイズを測り直し、時計もリセットしてから
+       すぐ描き直すことで、置き去りの状態が一瞬でも表示されないようにする。 */
+    if(S.running) requestWake();
+    fitAll();
+    lastFrame=performance.now();
+    render();
+  }
 });
 
 /* デモ：実際の加減速に似た速度プロファイルを同じパイプラインへ流す */
@@ -909,25 +924,50 @@ function drawPeak(c,cx,cy,R,ang,d,color){
   const pk=S.vMax*S.unit.k;
   if(!(pk>0.5)) return;
   const a=ang(Math.min(pk,d.vmax));
+  c.save();
+  c.shadowColor=color; c.shadowBlur=8;
   c.strokeStyle=color; c.lineWidth=3; c.lineCap="butt";
   c.beginPath();
   c.moveTo(cx+Math.cos(a)*(R-13), cy+Math.sin(a)*(R-13));
   c.lineTo(cx+Math.cos(a)*(R-26), cy+Math.sin(a)*(R-26));
   c.stroke();
+  c.restore();
 }
+
+/* ════════ 近未来 HUD 共通ヘルパー ════════
+   4つの見た目すべてを「暗い計器盤に発光するアクセント色」という統一トーンにする。
+   アクセント色は選んでいる路線の色（--line-accent）にそのまま連動するので、
+   路線を選ぶとメーター自体の光る色も一緒に変わり、路線図とひと続きに見える。 */
+function hudAccent(){ return css("--line-accent") || css("--accent") || "#3DE6FF"; }
+function hudBg(c,w,h){
+  const g=c.createRadialGradient(w*0.5,h*0.36,Math.min(w,h)*0.04,w*0.5,h*0.55,Math.max(w,h)*0.78);
+  g.addColorStop(0,"#101820"); g.addColorStop(.62,"#080D12"); g.addColorStop(1,"#020304");
+  c.fillStyle=g; c.fillRect(0,0,w,h);
+}
+function hudRings(c,w,h,accent){
+  c.save();
+  c.strokeStyle=accent; c.globalAlpha=.05; c.lineWidth=1;
+  const cx=w/2, cy=h*0.52, maxR=Math.max(w,h)*0.78;
+  for(let r=maxR*0.18; r<maxR; r+=maxR*0.16){
+    c.beginPath(); c.arc(cx,cy,r,0,TAU); c.stroke();
+  }
+  c.restore();
+}
+function glow(c,color,blur){ c.shadowColor=color; c.shadowBlur=blur; }
+function noGlow(c){ c.shadowBlur=0; }
 
 /* 丸メーター上下の余白に置く計器ラベル（モード名／ピーク／精度） */
 function dialChrome(c,w,h,d,cy,R){
   const top=cy-R, bot=cy+R;
   c.textAlign="center"; c.textBaseline="middle";
   if(top>34){
-    c.fillStyle=css("--ink-3")||"#888";
+    c.fillStyle="#7E97A2";
     c.font='500 13px '+F_UI;
     c.fillText(S.mode.label, w/2, top/2);
   }
   if(h-bot>36){
     const y=bot+(h-bot)/2;
-    c.fillStyle=css("--ink-3")||"#888";
+    c.fillStyle="#7E97A2";
     c.font='500 12.5px '+F_UI;
     const peak = S.vMax>0 ? "最高 "+(S.vMax*S.unit.k).toFixed(0)+" "+d.unit : "";
     const acc  = Number.isFinite(d.acc) ? "精度 ±"+Math.round(d.acc)+" m" : "測位待ち";
@@ -935,119 +975,162 @@ function dialChrome(c,w,h,d,cy,R){
   }
 }
 
-/* ---- 車風：アナログ丸メーター ---- */
+/* ---- 車風：発光リングのアナログメーター ---- */
 function drawCar(c,w,h,d){
-  const dk=isDark();
-  const face=dk?"#0E1310":"#F6F3EB", ink=dk?"#E9EFEA":"#15180F";
-  const line=dk?"#4A554E":"#A9A290", red=dk?"#FF5B4E":"#B42419";
+  const AC=hudAccent();
+  hudBg(c,w,h);
   const cx=w/2, cy=h*0.51, R=Math.min(w*0.47,h*0.44);
   if(R<20) return;
+  hudRings(c,w,h,AC);
   dialChrome(c,w,h,d,cy,R);
   const A0=Math.PI*0.75, SW=Math.PI*1.5, ang=v=>A0+SW*clamp(v/d.vmax,0,1);
 
-  const g=c.createRadialGradient(cx,cy-R*0.3,R*0.1,cx,cy,R*1.05);
-  g.addColorStop(0, dk?"#1A211C":"#FFFFFF"); g.addColorStop(1, face);
-  c.fillStyle=g; c.beginPath(); c.arc(cx,cy,R,0,TAU); c.fill();
-  c.strokeStyle=line; c.lineWidth=1.5; c.stroke();
-  c.strokeStyle=dk?"#2A332D":"#DED7C6"; c.lineWidth=6;
-  c.beginPath(); c.arc(cx,cy,R-6,0,TAU); c.stroke();
+  glow(c,AC,18);
+  c.strokeStyle=AC; c.globalAlpha=.55; c.lineWidth=2;
+  c.beginPath(); c.arc(cx,cy,R+9,0,TAU); c.stroke();
+  c.globalAlpha=1; noGlow(c);
 
-  c.strokeStyle=red; c.lineWidth=4; c.globalAlpha=.85;
-  c.beginPath(); c.arc(cx,cy,R-15, ang(d.vmax*0.85), ang(d.vmax)); c.stroke();
+  const g=c.createRadialGradient(cx,cy-R*0.3,R*0.1,cx,cy,R*1.05);
+  g.addColorStop(0,"#151F27"); g.addColorStop(1,"#080B0F");
+  c.fillStyle=g; c.beginPath(); c.arc(cx,cy,R,0,TAU); c.fill();
+  c.strokeStyle="#243139"; c.lineWidth=1.5; c.stroke();
+
+  const p=clamp(d.value/d.vmax,0,1);
+  glow(c,AC,14);
+  c.strokeStyle=AC; c.lineWidth=5; c.lineCap="round";
+  c.beginPath(); c.arc(cx,cy,R-9, A0, A0+SW*p); c.stroke();
+  noGlow(c);
+
+  c.strokeStyle="#FF3B4E"; c.lineWidth=4; c.globalAlpha=.7;
+  c.beginPath(); c.arc(cx,cy,R-9, ang(d.vmax*0.88), ang(d.vmax)); c.stroke();
   c.globalAlpha=1;
 
   const [maj,min]=pickSteps(d.vmax);
-  drawPeak(c,cx,cy,R,ang,d,dk?"#FFC94D":"#C4820A");
+  drawPeak(c,cx,cy,R,ang,d,"#FFC94D");
   const nT=Math.round(d.vmax/min), per=Math.round(maj/min);
   c.textAlign="center"; c.textBaseline="middle";
   for(let i=0;i<=nT;i++){
     const v=i*min, a=ang(v), isMaj=(i%per)===0;
-    const r1=R-13, r2=r1-(isMaj?15:7);
-    c.strokeStyle=isMaj?ink:line; c.lineWidth=isMaj?2.6:1.2;
+    const r1=R-17, r2=r1-(isMaj?14:6);
+    c.strokeStyle=isMaj?"#DCEFF5":"#3C4A52"; c.lineWidth=isMaj?2.2:1;
+    if(isMaj) glow(c,"#DCEFF5",6);
     c.beginPath();
     c.moveTo(cx+Math.cos(a)*r1, cy+Math.sin(a)*r1);
     c.lineTo(cx+Math.cos(a)*r2, cy+Math.sin(a)*r2);
     c.stroke();
+    noGlow(c);
     if(isMaj){
-      c.fillStyle=ink; c.font='500 '+Math.round(R*0.115)+'px '+F_NUM;
-      c.fillText(String(Math.round(v)), cx+Math.cos(a)*(R-44), cy+Math.sin(a)*(R-44));
+      c.fillStyle="#B9CBD3"; c.font='500 '+Math.round(R*0.105)+'px '+F_NUM;
+      c.fillText(String(Math.round(v)), cx+Math.cos(a)*(R-42), cy+Math.sin(a)*(R-42));
     }
   }
 
-  c.fillStyle=dk?"#8B968E":"#7B7768";
-  c.font='500 '+Math.round(R*0.085)+'px '+F_LAB;
+  c.fillStyle="#6E828C"; c.font='500 '+Math.round(R*0.085)+'px '+F_LAB;
   c.fillText(d.unit.toUpperCase(), cx, cy+R*0.30);
-  c.fillStyle=ink; c.font='600 '+Math.round(R*0.40)+'px '+F_NUM;
+  glow(c,"#EAF6FA",10);
+  c.fillStyle="#F2FBFF"; c.font='600 '+Math.round(R*0.40)+'px '+F_NUM;
   c.fillText(d.text, cx, cy+R*0.58);
+  noGlow(c);
 
   const a=ang(d.value), L=R-20;
   c.save(); c.translate(cx,cy); c.rotate(a);
-  c.fillStyle=red; c.beginPath();
-  c.moveTo(-R*0.16,-3.4); c.lineTo(L,-1.5); c.lineTo(L,1.5); c.lineTo(-R*0.16,3.4);
-  c.closePath(); c.fill(); c.restore();
-  c.fillStyle=dk?"#232C27":"#2B2F26"; c.beginPath(); c.arc(cx,cy,R*0.075,0,TAU); c.fill();
-  c.fillStyle=red; c.beginPath(); c.arc(cx,cy,R*0.032,0,TAU); c.fill();
+  glow(c,AC,12);
+  c.fillStyle=AC; c.beginPath();
+  c.moveTo(-R*0.16,-2.6); c.lineTo(L,-1.3); c.lineTo(L,1.3); c.lineTo(-R*0.16,2.6);
+  c.closePath(); c.fill();
+  noGlow(c); c.restore();
+  c.fillStyle="#0C1114"; c.beginPath(); c.arc(cx,cy,R*0.075,0,TAU); c.fill();
+  c.strokeStyle=AC; c.lineWidth=1.5; c.stroke();
+  glow(c,AC,8);
+  c.fillStyle=AC; c.beginPath(); c.arc(cx,cy,R*0.03,0,TAU); c.fill();
+  noGlow(c);
 }
 
-/* ---- 電車風：運転台の白文字盤 ---- */
+/* ---- 電車風：運転台コックピットHUD（速度帯を実際のATS表示のように色分け） ---- */
 function drawRail(c,w,h,d){
-  const dk=isDark();
-  const face=dk?"#B5AF9E":"#EFEBDF";   // 夜は減光した文字盤
-  const ink="#14170F", line="#7C776A", red="#B0281C";
+  const AC=hudAccent();
+  hudBg(c,w,h);
   const cx=w/2, cy=h*0.51, R=Math.min(w*0.46,h*0.435);
   if(R<20) return;
+  hudRings(c,w,h,AC);
   const A0=Math.PI*0.72, SW=Math.PI*1.56, ang=v=>A0+SW*clamp(v/d.vmax,0,1);
-  dialChrome(c,w,h,d,cy,R+7);
+  dialChrome(c,w,h,d,cy,R+11);
 
-  c.fillStyle=dk?"#171D19":"#2A2E28"; c.beginPath(); c.arc(cx,cy,R+7,0,TAU); c.fill();
-  c.fillStyle=face; c.beginPath(); c.arc(cx,cy,R,0,TAU); c.fill();
+  glow(c,AC,16);
+  c.strokeStyle=AC; c.globalAlpha=.5; c.lineWidth=2;
+  c.beginPath(); c.arc(cx,cy,R+11,0,TAU); c.stroke();
+  c.globalAlpha=1; noGlow(c);
+  c.strokeStyle="#1C262C"; c.lineWidth=10;
+  c.beginPath(); c.arc(cx,cy,R+4,0,TAU); c.stroke();
+
+  const g=c.createRadialGradient(cx,cy-R*0.3,R*0.1,cx,cy,R*1.05);
+  g.addColorStop(0,"#151F24"); g.addColorStop(1,"#070A0C");
+  c.fillStyle=g; c.beginPath(); c.arc(cx,cy,R,0,TAU); c.fill();
+
+  const bands=[[0,.72,"#2FD97A"],[.72,.90,"#FFC94D"],[.90,1,"#FF3B4E"]];
+  for(const bnd of bands){
+    const [b0,b1,col]=bnd;
+    glow(c,col,10);
+    c.strokeStyle=col; c.globalAlpha=.85; c.lineWidth=6;
+    c.beginPath(); c.arc(cx,cy,R-8, ang(d.vmax*b0), ang(d.vmax*b1)); c.stroke();
+  }
+  c.globalAlpha=1; noGlow(c);
 
   const [maj,min]=pickSteps(d.vmax);
-  drawPeak(c,cx,cy,R+2,ang,d,"#C4820A");
+  drawPeak(c,cx,cy,R+2,ang,d,"#FFC94D");
   const nT=Math.round(d.vmax/min), per=Math.round(maj/min);
   c.textAlign="center"; c.textBaseline="middle";
   for(let i=0;i<=nT;i++){
     const v=i*min, a=ang(v), isMaj=(i%per)===0;
-    const r1=R-9, r2=r1-(isMaj?17:8);
-    c.strokeStyle=isMaj?ink:line; c.lineWidth=isMaj?3.2:1.4;
+    const r1=R-20, r2=r1-(isMaj?16:7);
+    c.strokeStyle=isMaj?"#E7F4F8":"#33424A"; c.lineWidth=isMaj?2.6:1.2;
+    if(isMaj) glow(c,"#E7F4F8",5);
     c.beginPath();
     c.moveTo(cx+Math.cos(a)*r1, cy+Math.sin(a)*r1);
     c.lineTo(cx+Math.cos(a)*r2, cy+Math.sin(a)*r2);
     c.stroke();
+    noGlow(c);
     if(isMaj){
-      c.fillStyle=ink; c.font='700 '+Math.round(R*0.125)+'px '+F_NUM;
-      c.fillText(String(Math.round(v)), cx+Math.cos(a)*(R-46), cy+Math.sin(a)*(R-46));
+      c.fillStyle="#C3D7DE"; c.font='700 '+Math.round(R*0.12)+'px '+F_NUM;
+      c.fillText(String(Math.round(v)), cx+Math.cos(a)*(R-49), cy+Math.sin(a)*(R-49));
     }
   }
 
-  c.fillStyle="#4A473D"; c.font='600 '+Math.round(R*0.09)+'px '+F_LAB;
+  c.fillStyle="#5F7079"; c.font='600 '+Math.round(R*0.09)+'px '+F_LAB;
   c.fillText(d.unit.toUpperCase(), cx, cy-R*0.30);
 
-  c.fillStyle = d.value>0.5 ? "#1E9E5A" : "#5C5A50";
+  if(d.value>0.5) glow(c,"#2FD97A",10);
+  c.fillStyle = d.value>0.5 ? "#2FD97A" : "#3C4850";
   c.beginPath(); c.arc(cx, cy+R*0.30, R*0.045, 0, TAU); c.fill();
-  c.strokeStyle="#3A382F"; c.lineWidth=1.5; c.stroke();
+  noGlow(c);
+  c.strokeStyle="#465158"; c.lineWidth=1.5; c.stroke();
 
-  c.fillStyle=ink; c.font='700 '+Math.round(R*0.34)+'px '+F_NUM;
+  glow(c,"#EAF8FF",12);
+  c.fillStyle="#F2FCFF"; c.font='700 '+Math.round(R*0.34)+'px '+F_NUM;
   c.fillText(d.text, cx, cy+R*0.56);
-  c.fillStyle="#6B675B"; c.font='400 '+Math.round(R*0.062)+'px '+F_LAB;
+  noGlow(c);
+  c.fillStyle="#5F7079"; c.font='400 '+Math.round(R*0.062)+'px '+F_LAB;
   c.fillText("GPS DOPPLER   Vd-1", cx, cy+R*0.76);
 
-  const a=ang(d.value), L=R-16;
+  const a=ang(d.value), L=R-18;
   c.save(); c.translate(cx,cy); c.rotate(a);
-  c.fillStyle=ink; c.beginPath();
-  c.moveTo(-R*0.19,-2.6); c.lineTo(L*0.80,-1.6); c.lineTo(L*0.80,1.6); c.lineTo(-R*0.19,2.6);
+  glow(c,AC,10);
+  c.fillStyle=AC; c.beginPath();
+  c.moveTo(-R*0.19,-2.4); c.lineTo(L*0.82,-1.4); c.lineTo(L*0.82,1.4); c.lineTo(-R*0.19,2.4);
   c.closePath(); c.fill();
-  c.fillStyle=red; c.beginPath();
-  c.moveTo(L*0.80,-1.6); c.lineTo(L,-1.1); c.lineTo(L,1.1); c.lineTo(L*0.80,1.6);
-  c.closePath(); c.fill(); c.restore();
-  c.fillStyle=ink; c.beginPath(); c.arc(cx,cy,R*0.055,0,TAU); c.fill();
+  c.fillStyle="#FF5B6B"; c.beginPath();
+  c.moveTo(L*0.82,-1.4); c.lineTo(L,-.9); c.lineTo(L,.9); c.lineTo(L*0.82,1.4);
+  c.closePath(); c.fill();
+  noGlow(c); c.restore();
+  c.fillStyle="#0B1013"; c.beginPath(); c.arc(cx,cy,R*0.055,0,TAU); c.fill();
+  c.strokeStyle=AC; c.lineWidth=1.3; c.stroke();
 }
 
-/* ---- 飛行機風：PFD の縦テープ（本物に合わせて黒で固定） ---- */
+/* ---- 飛行機風：PFD の縦テープ（グロー強調） ---- */
 function drawPfd(c,w,h,d){
-  const bg="#050807", tape="#12181A", ink="#EDF3F0", dim="#7E8B86";
+  const tape="#0E1517", ink="#EDF3F0", dim="#7E8B86";
   const grn="#37D68B", cyn="#4FD6E8", mag="#E77BD8";
-  c.fillStyle=bg; c.fillRect(0,0,w,h);
+  hudBg(c,w,h);
   if(w<200||h<150){
     c.fillStyle=ink; c.textAlign="center"; c.textBaseline="middle";
     c.font='300 '+Math.round(Math.min(w*0.3,h*0.4))+'px '+F_NUM;
@@ -1061,7 +1144,7 @@ function drawPfd(c,w,h,d){
 
   function tape2(x,val,sp,maj,min,label,colr,right,floor){
     c.fillStyle=tape; c.fillRect(x,ty,tw,th);
-    c.strokeStyle="#28332F"; c.lineWidth=1; c.strokeRect(x+.5,ty+.5,tw-1,th-1);
+    c.strokeStyle="#1E2C29"; c.lineWidth=1; c.strokeRect(x+.5,ty+.5,tw-1,th-1);
     c.save(); c.beginPath(); c.rect(x,ty,tw,th); c.clip();
     c.textBaseline="middle";
     const px=th/sp, v0=Number.isFinite(val)?val:0;
@@ -1082,11 +1165,13 @@ function drawPfd(c,w,h,d){
     }
     c.restore();
     const by=ty+th/2, bh=34, bw=tw+16, bx=right? x-16 : x;
+    glow(c,colr,10);
     c.fillStyle="#000"; c.strokeStyle=colr; c.lineWidth=2;
     c.beginPath(); c.rect(bx,by-bh/2,bw,bh); c.fill(); c.stroke();
     c.fillStyle=colr; c.font='600 25px '+F_NUM;
     c.textAlign="center"; c.textBaseline="middle";
     c.fillText(Number.isFinite(val)?String(Math.round(val)):"---", bx+bw/2, by+1);
+    noGlow(c);
     c.fillStyle=dim; c.font='500 10.5px '+F_LAB;
     c.textAlign=right?"right":"left"; c.textBaseline="alphabetic";
     c.fillText(label, right? x+tw : x, ty-9);
@@ -1103,13 +1188,17 @@ function drawPfd(c,w,h,d){
   while(fs>13 && c.measureText(d.text).width > gapW*0.94){
     fs-=2; c.font='300 '+Math.round(fs)+'px '+F_NUM;
   }
+  glow(c,ink,14);
   c.fillStyle=ink; c.textBaseline="alphabetic";
   c.fillText(d.text, w/2, h*0.41);
+  noGlow(c);
   c.textBaseline="middle";
   c.fillStyle=dim; c.font='500 12px '+F_LAB; c.fillText(d.unit.toUpperCase(), w/2, h*0.46);
 
+  glow(c,mag,8);
   c.fillStyle=mag; c.font='600 17px '+F_NUM;
   c.fillText(Number.isFinite(d.hdg)? String(Math.round(d.hdg)).padStart(3,"0")+"°" : "---°", w/2, h*0.115);
+  noGlow(c);
   c.fillStyle=dim; c.font='500 10px '+F_LAB; c.fillText("TRK", w/2, h*0.062);
 
   /* 昇降率。三角は書体に無いことがあるので図形で描く */
@@ -1127,32 +1216,39 @@ function drawPfd(c,w,h,d){
   c.textAlign="center";
 }
 
-/* ---- デジタル ---- */
+/* ---- デジタル：発光リング型HUD ---- */
 function drawDigital(c,w,h,d){
-  const ink=css("--ink")||"#111", dim=css("--ink-3")||"#888";
-  const acc=css("--accent")||"#0E7C4F", line=css("--line")||"#ccc";
-  c.textAlign="center";
-  c.fillStyle=ink; c.font='300 '+Math.round(Math.min(w*0.52,h*0.62))+'px '+F_NUM;
-  c.textBaseline="alphabetic"; c.fillText(d.text, w/2, h*0.57);
-  c.textBaseline="middle";
-  c.fillStyle=dim; c.font='500 '+Math.round(Math.min(w*0.045,17))+'px '+F_LAB;
-  c.fillText(d.unit.toUpperCase(), w/2, h*0.69);
+  const AC=hudAccent();
+  hudBg(c,w,h);
+  const cx=w/2, cy=h*0.52, R=Math.min(w*0.40,h*0.38);
+  if(R<20) return;
+  hudRings(c,w,h,AC);
+  const A0=Math.PI*0.72, SW=Math.PI*1.56, ang=v=>A0+SW*clamp(v/d.vmax,0,1);
 
-  const bw=Math.min(w*0.72,420), bx=(w-bw)/2, by=h*0.82;
-  c.lineCap="round";
-  c.strokeStyle=line; c.lineWidth=2;
-  c.beginPath(); c.moveTo(bx,by); c.lineTo(bx+bw,by); c.stroke();
+  c.strokeStyle="#1C262C"; c.lineWidth=10;
+  c.beginPath(); c.arc(cx,cy,R,0,TAU); c.stroke();
+
   const p=clamp(d.value/d.vmax,0,1);
-  c.strokeStyle=acc; c.beginPath(); c.moveTo(bx,by); c.lineTo(bx+bw*p,by); c.stroke();
-  c.fillStyle=acc; c.beginPath(); c.arc(bx+bw*p,by,4.5,0,TAU); c.fill();
-
-  c.fillStyle=dim; c.font='500 11px '+F_NUM; c.textBaseline="top";
-  c.textAlign="left";  c.fillText("0", bx, by+9);
-  c.textAlign="right"; c.fillText(String(Math.round(d.vmax)), bx+bw, by+9);
+  glow(c,AC,20);
+  c.strokeStyle=AC; c.lineWidth=10; c.lineCap="round";
+  c.beginPath(); c.arc(cx,cy,R, A0, A0+SW*p); c.stroke();
+  noGlow(c);
 
   c.textAlign="center"; c.textBaseline="middle";
-  c.font='500 12px '+F_LAB;
-  c.fillText(Number.isFinite(d.acc)? "± "+d.acc.toFixed(0)+" m" : "測位待ち", w/2, h*0.20);
+  c.fillStyle="#59707A"; c.font='500 '+Math.round(R*0.11)+'px '+F_NUM;
+  for(const f of [0,.25,.5,.75,1]){
+    const a=ang(d.vmax*f), rr=R+22;
+    c.fillText(String(Math.round(d.vmax*f)), cx+Math.cos(a)*rr, cy+Math.sin(a)*rr);
+  }
+
+  dialChrome(c,w,h,d,cy,R+34);
+
+  glow(c,"#F2FCFF",16);
+  c.fillStyle="#F8FEFF"; c.font='300 '+Math.round(R*0.78)+'px '+F_NUM;
+  c.fillText(d.text, cx, cy+R*0.02);
+  noGlow(c);
+  c.fillStyle="#6E828C"; c.font='600 '+Math.round(R*0.14)+'px '+F_LAB;
+  c.fillText(d.unit.toUpperCase(), cx, cy+R*0.38);
 }
 
 /* ---- 直近 60 秒のトレンド（単系列・端点強調） ---- */
@@ -1199,6 +1295,12 @@ function frame(now){
     }
   }
 
+  /* メーターの針や数字は、GPSの補正が入るたびに一瞬カクッと動いてしまう。
+     距離・統計などの本当の計算には触れず、見た目の表示値だけを実測値(S.v)へ
+     なめらかに追いつかせることで、針の動きを滑らかに見せる。            */
+  const kDisp = 1-Math.exp(-dt*7);
+  S.vDisp = Number.isFinite(S.vDisp) ? S.vDisp+(S.v-S.vDisp)*kDisp : S.v;
+
   render();
   if(now-lastStats>200){ lastStats=now; paintStats(); rtUpdate(); }
   requestAnimationFrame(frame);
@@ -1207,10 +1309,11 @@ function frame(now){
 function render(){
   if(!mCtx||mW<10||mH<10) return;
   const u=S.unit;
+  const vv=Number.isFinite(S.vDisp)?S.vDisp:S.v;
   const d={
-    value:S.v*u.k, valueKt:S.v*KT,
+    value:vv*u.k, valueKt:vv*KT,
     vmax:S.mode.vmaxKmh/3.6*u.k, vmaxKt:S.mode.vmaxKmh/3.6*KT,
-    unit:u.label, text:(S.v*u.k).toFixed(u.key==="ms"?1:0),
+    unit:u.label, text:(vv*u.k).toFixed(u.key==="ms"?1:0),
     acc:S.acc, altM:S.altF, vs:S.vs*FT, hdg:S.hdg,
   };
   mCtx.clearRect(0,0,mW,mH);
@@ -1358,7 +1461,20 @@ function renderDiagram(targetId){
     host.appendChild(div);
     if(isCur) curEl=div;
   });
-  if(curEl) curEl.scrollIntoView({inline:"center", block:"nearest"});
+  /* host自身の内側だけをスクロールする(ページ全体が横にズレる不具合を防ぐため、
+     scrollIntoView は使わない。祖先のCSSに頼らず、ここで完結させる)。 */
+  if(curEl){
+    if(host.scrollWidth > host.clientWidth+1){
+      const target = curEl.offsetLeft + curEl.offsetWidth/2 - host.clientWidth/2;
+      host.scrollLeft = Math.max(0, Math.min(target, host.scrollWidth-host.clientWidth));
+    } else {
+      const sc = host.closest(".mapNote");
+      if(sc && sc.scrollHeight > sc.clientHeight+1){
+        const target = curEl.offsetTop + curEl.offsetHeight/2 - sc.clientHeight/2;
+        sc.scrollTop = Math.max(0, Math.min(target, sc.scrollHeight-sc.clientHeight));
+      }
+    }
+  }
 }
 
 /* ---- 地図(Leaflet)：名鉄・JRなど緯度経度がある路線だけ実際の地図で、
@@ -1735,7 +1851,7 @@ swDemo.onclick=()=>{
 
 function resetStats(){
   S.vMax=0; S.dist=0; S.tMove=0; S.hist=[];
-  S.accelBest=NaN; S.accelState="idle"; S.P=P0; S.v=0;
+  S.accelBest=NaN; S.accelState="idle"; S.P=P0; S.v=0; S.vDisp=0;
   S.latP=NaN; S.lonP=NaN; S.errCount=0; IMU.reset();
 }
 $("btnReset").onclick=()=>{ resetStats(); sheet.hidden=true; };
