@@ -57,6 +57,16 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
   grid-template-rows:auto auto minmax(0,1fr) auto auto auto;
   padding:env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
 }
+/* 画面が広い機種(Android大画面・タブレット・PCのブラウザ)では、
+   スマホと同じ横幅のまま画面中央に表示し、左右を余白にする。
+   スマホ実機の見た目は変わらない(560px未満はこれまで通り)。      */
+@media (min-width:560px){
+  body{background:var(--surface-2)}
+  .app{
+    max-width:480px; margin:0 auto; background:var(--bg);
+    box-shadow:0 0 0 1px var(--line), 0 24px 70px -24px rgba(0,0,0,.4);
+  }
+}
 /* 駅バー(.eta)は追跡していない間 hidden(=display:none) になり、grid の
    自動配置から外れる。行番号を明示しておかないと、隠れた分だけ後続の
    要素が1行ずつ繰り上がり、可変(1fr)行の割り当てが崩れてレイアウトが
@@ -329,10 +339,10 @@ a.start{text-decoration:none}
 .opts.three{grid-template-columns:repeat(3,1fr)}
 .dirbtns{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
 
-.toast{position:fixed;left:14px;right:14px;top:calc(env(safe-area-inset-top) + 10px);z-index:40;background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:12px;font-size:13.5px;font-weight:600;text-align:center;box-shadow:var(--shadow);opacity:0;transform:translateY(-10px);transition:opacity .25s,transform .25s;pointer-events:none}
+.toast{position:fixed;left:max(14px, calc(50% - 240px + 14px));right:max(14px, calc(50% - 240px + 14px));top:calc(env(safe-area-inset-top) + 10px);z-index:40;background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:12px;font-size:13.5px;font-weight:600;text-align:center;box-shadow:var(--shadow);opacity:0;transform:translateY(-10px);transition:opacity .25s,transform .25s;pointer-events:none}
 .toast.show{opacity:1;transform:translateY(0)}
 
-.autobar{position:fixed;left:14px;right:14px;top:calc(env(safe-area-inset-top) + 54px);z-index:41;
+.autobar{position:fixed;left:max(14px, calc(50% - 240px + 14px));right:max(14px, calc(50% - 240px + 14px));top:calc(env(safe-area-inset-top) + 54px);z-index:41;
   display:flex;align-items:center;gap:9px;background:var(--surface);border:1.5px solid var(--line-accent);
   border-radius:14px;padding:10px 10px 10px 15px;box-shadow:var(--shadow);
   opacity:0;transform:translateY(-10px);transition:opacity .25s,transform .25s;pointer-events:none}
@@ -341,7 +351,7 @@ a.start{text-decoration:none}
 .autobar .abtn{flex:none;padding:9px 14px;border-radius:10px;font-weight:700;font-size:13px;background:var(--line-accent);color:var(--on-accent);font-family:inherit}
 .autobar .xbtn{flex:none;width:30px;height:30px;border-radius:50%;background:var(--surface-2);color:var(--ink-2);font-size:13px;display:flex;align-items:center;justify-content:center}
 
-.bgmbar{position:fixed;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom) + 14px);z-index:41;
+.bgmbar{position:fixed;left:max(14px, calc(50% - 240px + 14px));right:max(14px, calc(50% - 240px + 14px));bottom:calc(env(safe-area-inset-bottom) + 14px);z-index:41;
   display:flex;align-items:center;gap:9px;background:var(--surface);border:1.5px solid var(--line-accent);
   border-radius:14px;padding:10px 10px 10px 15px;box-shadow:var(--shadow);
   opacity:0;transform:translateY(10px);transition:opacity .25s,transform .25s;pointer-events:none}
@@ -480,14 +490,25 @@ body.flashPulse{animation:flashPulseAnim .7s ease}
         <button class="sw" id="swChime" aria-pressed="false" aria-label="チャイムで知らせる"></button></div>
       <div class="row">画面を光らせる<span class="sub">音を出さず、画面を一瞬明るく光らせて知らせます</span>
         <button class="sw" id="swFlash" aria-pressed="false" aria-label="画面を光らせる"></button></div>
+      <div class="row" id="rowVibrate" hidden>振動で知らせる<span class="sub">端末を短く振動させます(対応端末のみ表示)</span>
+        <button class="sw" id="swVibrate" aria-pressed="false" aria-label="振動で知らせる"></button></div>
       <div class="row"><button class="opt" id="btnRtTest" style="margin-left:auto;padding:8px 16px"><b>テストする</b></button></div>
       <div class="note"><b>画面がロックされると鳴りません。</b>電車に乗っている間は「画面を消さない」をONにし、この画面を開いたままにしてください。iPhoneのSafariは仕組み上、通知が出せない場合があります。その時も画面上の帯でお知らせします。</div>
-      <div class="note">iPhoneのSafariはアプリではないため、振動(バイブ)で知らせることができません。また「音声」「チャイム」がONのとき、他のアプリ(YouTubeなど)で流れている音や動画が、読み上げ・音の間だけ一時停止することがあります。これはiPhone自体の仕組みによるもので、このアプリ側だけでは完全には防げません。気になる場合は「通知」「画面を光らせる」・画面上の帯だけをお使いください。</div>
+      <div class="note">iPhoneのSafariはアプリではないため、振動(バイブ)で知らせることができません(Android版Chromeなど、対応する端末では「振動で知らせる」が選べます)。また「音声」「チャイム」がONのとき、他のアプリ(YouTubeなど)で流れている音や動画が、読み上げ・音の間だけ一時停止することがあります。これは端末自体の仕組みによるもので、このアプリ側だけでは完全には防げません。気になる場合は「通知」「画面を光らせる」・画面上の帯だけをお使いください。</div>
     </div>
     <div class="grp">
       <h3>乗り換えの自動検出</h3>
       <div class="opts three" id="autoModeOpts"></div>
       <div class="note" id="autoModeNote">オフ：これまで通り「次の駅を調べる」から手動で選びます。確認する：乗り換えたと判断したら、切り替えるか毎回確認します。自動で切替：確認なしでそのまま切り替えます（進む方向がはっきりしないときだけ確認します）。位置情報が使える路線(名鉄・JR・新幹線・地下鉄)が対象です。</div>
+    </div>
+    <div class="grp">
+      <h3>空港線の音を試聴する</h3>
+      <div class="note">名鉄空港線に実際に乗らなくても、ここでボタンを押せば発車・到着の音楽+車内放送や、セントレア接近BGMをその場で確認できます。音が鳴らない場合は、端末本体の音量とマナーモード(消音スイッチ)をご確認ください。</div>
+      <div class="opts three">
+        <button class="opt" id="btnTestMusky"><b>ミュースカイ</b><span>発車/到着音</span></button>
+        <button class="opt" id="btnTestTokkyu"><b>特急</b><span>発車/到着音</span></button>
+        <button class="opt" id="btnTestBgm"><b>接近BGM</b><span>再生⇔停止</span></button>
+      </div>
     </div>
     <div class="grp">
       <h3>公式の運行情報ページを開く</h3>
@@ -715,7 +736,7 @@ const S={
   vMax:0, dist:0, tMove:0,
   accelState:"idle", accelT0:0, accelBest:NaN,
   hist:[], vDisp:0,
-  chimeWanted:false, flashWanted:false,
+  chimeWanted:false, flashWanted:false, vibrateWanted:false,
 };
 
 /* ════════ 3. 加速度センサ ── 進行方向軸の自己学習 ════════
@@ -1805,6 +1826,9 @@ function beep(){
     o.start(t0); o.stop(t0+0.4);
   }catch(_){}
 }
+function vibrateNotify(){
+  try{ if(navigator.vibrate) navigator.vibrate([70,60,70]); }catch(_){}
+}
 function flashScreen(){
   try{
     document.body.classList.remove("flashPulse");
@@ -2162,6 +2186,7 @@ function announceSoon(name){
   showToast("まもなく "+name+" です");
   if(S.chimeWanted) beep();
   if(S.flashWanted) flashScreen();
+  if(S.vibrateWanted) vibrateNotify();
   speak("まもなく、"+name+"です。");
   notify("まもなく到着", name+" にまもなく到着します。");
 }
@@ -2169,6 +2194,7 @@ function speakArrived(name){
   showToast(name+" に到着しました");
   if(S.chimeWanted) beep();
   if(S.flashWanted) flashScreen();
+  if(S.vibrateWanted) vibrateNotify();
   speak(name+"に到着しました。");
 }
 
@@ -2573,6 +2599,7 @@ $("btnRtTest").onclick=()=>{
   showToast("まもなく テスト駅 です");
   if(S.chimeWanted) beep();
   if(S.flashWanted) flashScreen();
+  if(S.vibrateWanted) vibrateNotify();
   speak("まもなく、テスト、テスト駅です。");
   notify("まもなく到着（テスト）","テスト駅 にまもなく到着します。");
 };
@@ -2607,11 +2634,25 @@ swFlash.onclick=()=>{
   if(S.flashWanted) flashScreen();
   save();
 };
+if(navigator.vibrate){
+  const rowVibrate=$("rowVibrate"); if(rowVibrate) rowVibrate.hidden=false;
+}
+const swVibrate=$("swVibrate");
+if(swVibrate) swVibrate.onclick=()=>{
+  S.vibrateWanted=!S.vibrateWanted;
+  swVibrate.setAttribute("aria-pressed", String(S.vibrateWanted));
+  if(S.vibrateWanted) vibrateNotify();
+  save();
+};
 
 loadFavs(); renderFavBar();
 loadBest(); loadLog();
 
 $("btnBgmStop").onclick=()=>{ stopCentrairBgm(); };
+
+$("btnTestMusky").onclick=()=>{ playClip("mu_sky", AUDIO_MUSKY_B64, {loop:false}); };
+$("btnTestTokkyu").onclick=()=>{ playClip("ltd_express", AUDIO_TOKKYU_B64, {loop:false}); };
+$("btnTestBgm").onclick=()=>{ if(BGM_SRC) stopCentrairBgm(); else startCentrairBgm(); };
 
 /* ---- 時刻表を調べる: このアプリは時刻表データを持っていないので(名鉄・JR東海・
    地下鉄・あおなみ線・リニモのどこも無料で使える時刻表データを公開していない
@@ -2683,7 +2724,7 @@ $("btnReset").onclick=()=>{ resetStats(); sheet.hidden=true; };
 function save(){
   try{ localStorage.setItem("vd", JSON.stringify(
     {mode:S.mode.key, skin:S.skin, unit:S.unit.key, wake:S.wakeWanted,
-     notify:S.notifyWanted, voice:S.voiceWanted, chime:S.chimeWanted, flash:S.flashWanted, autoMode:AUTO.mode,
+     notify:S.notifyWanted, voice:S.voiceWanted, chime:S.chimeWanted, flash:S.flashWanted, vibrate:S.vibrateWanted, autoMode:AUTO.mode,
      rt: (RT.lineKey!=null && RT.idx!=null) ? {line:RT.lineKey, type:RT.type, idx:RT.idx, dir:RT.dir} : null
     })); }catch(_){}
 }
@@ -2698,6 +2739,7 @@ function load(){
     if(typeof o.voice==="boolean") S.voiceWanted=o.voice;
     if(typeof o.chime==="boolean") S.chimeWanted=o.chime;
     if(typeof o.flash==="boolean") S.flashWanted=o.flash;
+    if(typeof o.vibrate==="boolean") S.vibrateWanted=o.vibrate;
     if(AUTO_MODES.some(x=>x.key===o.autoMode)) AUTO.mode=o.autoMode;
     if(o.rt && STATION_LINES[o.rt.line]){
       const rtL=STATION_LINES[o.rt.line];
@@ -2721,6 +2763,7 @@ function load(){
   swVoice.setAttribute("aria-pressed", String(S.voiceWanted));
   swChime.setAttribute("aria-pressed", String(S.chimeWanted));
   swFlash.setAttribute("aria-pressed", String(S.flashWanted));
+  if(swVibrate) swVibrate.setAttribute("aria-pressed", String(S.vibrateWanted));
   const amo=$("autoModeOpts").children;
   for(let i=0;i<amo.length;i++) amo[i].setAttribute("aria-pressed", String(AUTO_MODES[i].key===AUTO.mode));
   loadFavs(); renderFavBar(); updateFavBtn();
