@@ -375,6 +375,7 @@ body.flashPulse{animation:flashPulseAnim .7s ease}
   max-height:240px;overflow-y:auto;background:var(--surface-2);border-radius:10px;padding:11px 12px;
   margin-top:9px;font-family:var(--font-num);display:none}
 .delaytest.show{display:block}
+.raillink{display:block;text-decoration:none;color:inherit}
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 </style>
 
@@ -405,6 +406,9 @@ body.flashPulse{animation:flashPulseAnim .7s ease}
         <div class="t" id="etaAvg">—</div>
       </div>
       <button class="fav" id="btnFav" aria-label="お気に入りに追加" aria-pressed="false">☆</button>
+      <button class="mapbtn" id="btnTimetable" aria-label="この駅の時刻表を調べる">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.2"/><path d="M12 7.5V12l3 2"/></svg>
+      </button>
       <button class="mapbtn" id="btnEtaMap" aria-label="地図を見る">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3 3 5v16l6-2 6 2 6-2V3l-6 2-6-2Z"/><path d="M9 3v16M15 5v16"/></svg>
       </button>
@@ -478,8 +482,19 @@ body.flashPulse{animation:flashPulseAnim .7s ease}
       <div class="note" id="autoModeNote">オフ：これまで通り「次の駅を調べる」から手動で選びます。確認する：乗り換えたと判断したら、切り替えるか毎回確認します。自動で切替：確認なしでそのまま切り替えます（進む方向がはっきりしないときだけ確認します）。位置情報が使える路線(名鉄・JR・新幹線・地下鉄)が対象です。</div>
     </div>
     <div class="grp">
-      <h3>運行情報を試す(実験・非公式)</h3>
-      <div class="note">名古屋エリア(名鉄・JR東海・地下鉄)の遅延・事故などの運行情報に対応した無料の公式データは見つかりませんでした。ボタンを押すと、非公式データ(鉄道.comの情報を配信している rti-giken.jp)に実際に名古屋エリアの路線が含まれているかを、この端末から直接確認できます。結果は画面に表示するだけで、保存や送信はしません。取得できても、公式データではないため正確さは保証されません。</div>
+      <h3>公式の運行情報ページを開く</h3>
+      <div class="note">名古屋エリアの遅延・事故などの運行情報を、このアプリの中に自動で表示することは今のところできません(下の「自動取得を試す」で実際に試すと分かります)。代わりに、各社の公式ページをワンタップで開けるようにしました。タップするとブラウザで別タブが開きます。</div>
+      <div class="opts" id="railLinks">
+        <a class="opt raillink" href="https://top.meitetsu.co.jp/em/" target="_blank" rel="noopener"><b>名鉄</b><span>運行情報</span></a>
+        <a class="opt raillink" href="https://traininfo.jr-central.co.jp/zairaisen/index.html" target="_blank" rel="noopener"><b>JR東海</b><span>在来線運行情報</span></a>
+        <a class="opt raillink" href="https://www.kotsu.city.nagoya.jp/rp/emergency/" target="_blank" rel="noopener"><b>地下鉄</b><span>運行情報</span></a>
+        <a class="opt raillink" href="https://www.aonamiline.co.jp/railinfo" target="_blank" rel="noopener"><b>あおなみ線</b><span>運行情報</span></a>
+        <a class="opt raillink" href="https://www.linimo.jp/delay/" target="_blank" rel="noopener"><b>リニモ</b><span>運行情報</span></a>
+      </div>
+    </div>
+    <div class="grp">
+      <h3>自動取得を試す(実験・非公式)</h3>
+      <div class="note">名古屋エリアの運行情報に対応した無料の公式データは見つかりませんでした。ボタンを押すと、非公式データ(鉄道.comの情報を配信している rti-giken.jp)に実際に名古屋エリアの路線が含まれているかを、この端末から直接確認できます。結果は画面に表示するだけで、保存や送信はしません。「取得できませんでした」と出た場合は、ブラウザからの直接アクセスがサイト側で許可されていないためと考えられ、これ自体が「使えない」ことを示す結果です。</div>
       <div class="row"><button class="opt" id="btnDelayTest" style="margin-left:auto;padding:8px 16px"><b>試しに取得してみる</b></button></div>
       <pre class="delaytest" id="delayTestOut"></pre>
     </div>
@@ -2519,6 +2534,17 @@ swFlash.onclick=()=>{
 
 loadFavs(); renderFavBar();
 loadBest(); loadLog();
+
+/* ---- 時刻表を調べる: このアプリは時刻表データを持っていないので(名鉄・JR東海・
+   地下鉄・あおなみ線・リニモのどこも無料で使える時刻表データを公開していない
+   ため埋め込めなかった)、今選んでいる駅・路線名でその場にネット検索を開き、
+   信頼できるサイトへワンタップで橋渡しする。 ---- */
+$("btnTimetable").onclick=()=>{
+  const L=rtLine(), cur=rtCur();
+  if(!L || !cur){ return; }
+  const q = encodeURIComponent(L.name+" "+cur.n+"駅 時刻表");
+  window.open("https://www.google.com/search?q="+q, "_blank", "noopener");
+};
 
 /* ---- 運行情報テスト(実験・非公式): 名古屋エリアの路線が含まれているか
    実際に取得して自分の目で確かめるための調査用ボタン。結果はどこにも
