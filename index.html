@@ -3134,7 +3134,7 @@ window.vd={ get speed(){return S.v;}, get raw(){return S.vRaw;},
             bgmCheck:maybeStartCentrairBgm,
             bgmUserStopped:()=>BGM_USER_STOPPED,
             musky:{ script:muskyScript, isOn:muskyOn, toAirport:MUSKY_TO_AIRPORT, toGifu:MUSKY_TO_GIFU,
-              speakScript:speakScript, get pendDepart(){return RT.pendDepart;},
+              speakScript:speakScript, get pendDepart(){return RT.pendDepart;}, get pendStopped(){return RT.pendStopped;},
               setPendDepart:(n)=>{RT.pendDepart=n;} } };
 
 fitAll();
