@@ -518,13 +518,16 @@ body.flashPulse{animation:flashPulseAnim .7s ease}
       <div class="note" id="autoModeNote">オフ：これまで通り「次の駅を調べる」から手動で選びます。確認する：乗り換えたと判断したら、切り替えるか毎回確認します。自動で切替：確認なしでそのまま切り替えます（進む方向がはっきりしないときだけ確認します）。位置情報が使える路線(名鉄・JR・新幹線・地下鉄)が対象です。</div>
     </div>
     <div class="grp">
-      <h3>空港線の音を試聴する</h3>
-      <div class="note">名鉄空港線に実際に乗らなくても、ここでボタンを押せば発車・到着の音楽+車内放送や、セントレア接近BGMをその場で確認できます。音が鳴らない場合は、端末本体の音量とマナーモード(消音スイッチ)をご確認ください。</div>
+      <h3>特急・ミュースカイの音を試聴する</h3>
+      <div class="note">実際に乗らなくても、ここでボタンを押せば発車・到着の音楽+車内放送や、セントレア接近BGMをその場で確認できます。発車・到着の音楽は、名鉄の特急・ミュースカイに乗ったときに鳴ります。セントレア接近BGMは、ミュースカイで中部国際空港へ向かうときだけ鳴ります。音が鳴らない場合は、端末本体の音量とマナーモード(消音スイッチ)をご確認ください。</div>
       <div class="row">特急・ミュースカイの自動放送<span class="sub">発車時とまもなく到着時に、種別・行き先入りの案内放送を読み上げます</span>
         <button class="sw" id="swAirportAnnounce" aria-pressed="true" aria-label="特急・ミュースカイの自動放送"></button></div>
-      <div class="row">英語放送も流す<span class="sub">日本語の後に、続けて英語の案内を読み上げます</span>
+      <div class="row">英語放送も流す<span class="sub">日本語の後に、続けて英語の案内を読み上げます(ミュースカイのみ)</span>
         <button class="sw" id="swEnAnnounce" aria-pressed="true" aria-label="英語放送も流す"></button></div>
-      <div class="note">「ミュースカイ(名鉄岐阜〜中部国際空港)」を選んで乗ると、実際の車内自動放送とほぼ同じ内容(日本語・英語)が、駅ごとに順番に流れます。空港線(常滑〜中部国際空港)だけを選んだ場合は、雰囲気を寄せた短い案内になります。詳しいご案内は乗務員・駅の放送に従ってください。上の「音声で知らせる」がOFFのときは、どちらも鳴りません。</div>
+      <div class="row">名古屋本線の自動放送<span class="sub">普通・準急・急行などでも、種別と行き先入りの案内を読み上げます</span>
+        <button class="sw" id="swLineAnnounce" aria-pressed="true" aria-label="名古屋本線の自動放送"></button></div>
+      <div class="note">「ミュースカイ(名鉄岐阜〜中部国際空港)」を選んで乗ると、実際の車内自動放送とほぼ同じ内容(日本語・英語)が、駅ごとに順番に流れます。名鉄名古屋本線(豊橋〜名鉄岐阜)の普通・準急・急行などでは、停車駅と乗り換えできる路線のデータから、同じ言い回しで案内を組み立てて読み上げます(こちらは実物の録音の写しではありません)。空港線(常滑〜中部国際空港)だけを選んだ場合は、短い案内になります。詳しいご案内は乗務員・駅の放送に従ってください。上の「音声で知らせる」がOFFのときは、どれも鳴りません。</div>
+      <div class="note">発車・到着の音楽は、名鉄の「特急」と「ミュースカイ」に乗ったときだけ鳴ります(普通・準急・急行・快速急行では鳴りません)。音楽が鳴る場合は、鳴り終わってから放送が始まります。</div>
       <div class="row volrow">
         <div class="vrhead">音楽・放送の音量<b id="clipVolLabel">100%</b></div>
         <input type="range" class="vrslider" id="rngClipVol" min="0" max="100" step="5" value="100" aria-label="空港線の音楽・放送の音量">
@@ -752,6 +755,9 @@ const STATION_LINES = {"meitetsu_nagoya":{"name":"名鉄名古屋本線","compan
 const TRANSFER_INDEX={};
 (function buildTransferIndex(){
   for(const key in STATION_LINES){
+    /* 直通ミュースカイは、名古屋本線・常滑線・空港線と同じ駅を
+       並べ直したものなので、乗り換え先としては数えない。      */
+    if(key==="meitetsu_musky") continue;
     const L=STATION_LINES[key];
     for(const s of L.stations){
       if(!TRANSFER_INDEX[s.n]) TRANSFER_INDEX[s.n]=[];
@@ -779,7 +785,7 @@ const S={
   vMax:0, dist:0, tMove:0,
   accelState:"idle", accelT0:0, accelBest:NaN,
   hist:[], vDisp:0,
-  chimeWanted:false, flashWanted:false, vibrateWanted:false, airportAnnounceWanted:true, enAnnounceWanted:true, chimeVol:1, clipVol:1,
+  chimeWanted:false, flashWanted:false, vibrateWanted:false, airportAnnounceWanted:true, enAnnounceWanted:true, lineAnnounceWanted:true, chimeVol:1, clipVol:1,
 };
 
 /* ════════ 3. 加速度センサ ── 進行方向軸の自己学習 ════════
@@ -1833,13 +1839,22 @@ async function playClip(key, b64, opts){
     return src;
   }catch(e){ return null; }
 }
+/* 発車・到着の音楽を鳴らす列車かどうか。
+   名鉄の「特急」と「ミュースカイ」だけが対象。普通・準急・急行・
+   快速急行では鳴らない。他社(JR・地下鉄など)の路線でも鳴らない。 */
 function isAirportAnnounceType(){
   if(RT.lineKey==="meitetsu_musky") return true;   /* 直通ミュースカイ */
-  return RT.lineKey==="meitetsu_airport" && (RT.type==="mu_sky" || RT.type==="ltd_express");
+  const L=rtLine();
+  if(!L || L.company!=="名古屋鉄道") return false;
+  return RT.type==="mu_sky" || RT.type==="ltd_express";
 }
+/* 「空港線だけを選んだときの短い案内」を使うかどうか。
+   音楽の判定(上)とは別で、こちらは空港線に限る。直通ミュースカイと
+   名古屋本線には、それぞれ専用の台本があるのでここでは扱わない。  */
 function airportAnnounceOn(){
-  if(RT.lineKey==="meitetsu_musky") return false;  /* 実物の台本が優先 */
-  return isAirportAnnounceType() && S.airportAnnounceWanted;
+  return RT.lineKey==="meitetsu_airport"
+      && (RT.type==="mu_sky" || RT.type==="ltd_express")
+      && S.airportAnnounceWanted;
 }
 function airportDestName(){
   const st=rtStations(); if(!st || !st.length) return null;
@@ -1863,11 +1878,31 @@ function airportDepartAnnounce(){
   if(t) speak(t);
 }
 const AIRPORT_CLIP={mu_sky:AUDIO_MUSKY_B64, ltd_express:AUDIO_TOKKYU_B64};
-function playAirportChime(){
-  if(!isAirportAnnounceType()) return;
+/* 発車・到着の音楽を鳴らし、その音の長さ(秒)を返す。
+   音が無い・鳴らせないときは0を返す。                    */
+async function playAirportChime(){
+  if(!isAirportAnnounceType()) return 0;
   const key = (RT.lineKey==="meitetsu_musky") ? "mu_sky" : RT.type;
   const b64=AIRPORT_CLIP[key];
-  if(b64) playClip(key, b64, {loop:false, gain:S.clipVol});
+  if(!b64) return 0;
+  const src = await playClip(key, b64, {loop:false, gain:S.clipVol});
+  return (src && src.buffer) ? src.buffer.duration : 0;
+}
+/* 音楽を鳴らし、鳴り終わってから放送を読み上げる。
+   音楽が無い路線や、音が鳴らせなかったときは、すぐに読み上げる。
+   途中で「やめる」を押したり別の駅に進んだ場合は、古い予約が
+   あとから鳴らないよう、番号(トークン)で無効にする。        */
+let ANN_TOKEN=0;
+function chimeThenSpeak(fn){
+  const my = ++ANN_TOKEN;
+  const done = ()=>{ if(my===ANN_TOKEN) fn(); };
+  let p;
+  try{ p = playAirportChime(); }catch(_){ done(); return; }
+  Promise.resolve(p).then(sec=>{
+    const ms = Math.max(0, (Number(sec)||0)*1000);
+    if(ms<=0){ done(); return; }
+    setTimeout(done, ms + 400);   /* 少し間を空けてから放送を始める */
+  }).catch(()=>done());
 }
 let BGM_TOKEN=0;
 async function startCentrairBgm(){
@@ -1992,17 +2027,21 @@ function rtStart(lineKey, type, idx, dir){
   hideAutoBar();
   AUTO.lastDismissKey=null;
   rideBegin();
-  playAirportChime();
   if(muskyOn()){
     const sc=muskyScript();
-    speakScript(sc.start);
+    chimeThenSpeak(()=>speakScript(sc.start));
     /* 乗った駅の「発車後放送」は、実際に走り出してから流す */
     const here=rtCur();
     RT.pendDepart = (here && sc.depart[here.n]) ? here.n : null;
     RT.pendAt=Date.now(); RT.pendStopped=false;
+  } else if(LINE_SCRIPT_LINES[lineKey] && S.lineAnnounceWanted){
+    chimeThenSpeak(()=>lineStartAnnounce());
+    const here=rtCur();
+    RT.pendDepart = here ? here.n : null;
+    RT.pendAt=Date.now(); RT.pendStopped=false;
   } else {
     RT.pendDepart=null;
-    airportDepartAnnounce();
+    chimeThenSpeak(()=>airportDepartAnnounce());
   }
   BGM_USER_STOPPED=false;
   maybeStartCentrairBgm();
@@ -2010,6 +2049,7 @@ function rtStart(lineKey, type, idx, dir){
 }
 function rtStop(){
   rideEnd();
+  ANN_TOKEN++;
   RT.lineKey=null; RT.type=null; RT.idx=null; RT.pendDepart=null; RT.pendStopped=false;
   applyLineColor(null);
   closeMap();
@@ -2050,10 +2090,11 @@ function rtUpdate(){
     speakArrived(arrivedName);
     if(muskyOn() && muskyScript().depart[arrivedName]){
       RT.pendDepart=arrivedName; RT.pendAt=Date.now(); RT.pendStopped=false;
+    } else if(lineScriptOn()){
+      RT.pendDepart=arrivedName; RT.pendAt=Date.now(); RT.pendStopped=false;
     }
     BGM_USER_STOPPED=false;
     if(arrivedName==="中部国際空港") stopCentrairBgm();
-    playAirportChime();
     save();
     renderEta();
     return;
@@ -2075,6 +2116,7 @@ function rtUpdate(){
       const entry = sc ? sc.depart[RT.pendDepart] : null;
       RT.pendDepart=null;
       if(entry) speakScript(entry);
+      else if(lineScriptOn()) lineDepartAnnounce();
     }
   }
 
@@ -2297,6 +2339,105 @@ function closeMap(){
 }
 
 /* ---- 音声(SpeechSynthesis)・通知(Notification)・画面上の帯 ---- */
+/* 読み上げ用のふりがな表。上から順に置き換えるので、長い言葉を先に書く。
+   (例: 「全車特別車」を「特別車」より先に置く)              */
+const YOMI = [
+  ["全車特別車","ぜんしゃとくべつしゃ"],
+  ["一部特別車","いちぶとくべつしゃ"],
+  ["特別車","とくべつしゃ"],
+  ["ミューチケット","ミューチケット"],
+  /* 名鉄名古屋本線・空港線などの駅名 */
+  ["名鉄岐阜","めいてつぎふ"],
+  ["名鉄一宮","めいてついちのみや"],
+  ["名鉄名古屋","めいてつなごや"],
+  ["名電赤坂","めいでんあかさか"],
+  ["名電長沢","めいでんながさわ"],
+  ["名電山中","めいでんやまなか"],
+  ["中京競馬場前","ちゅうきょうけいばじょうまえ"],
+  ["中部国際空港","ちゅうぶこくさいくうこう"],
+  ["りんくう常滑","りんくうとこなめ"],
+  ["国府宮","こうのみや"],
+  ["国府(愛知)","こう"],
+  ["国府","こう"],
+  ["御油","ごゆ"],
+  ["本宿(愛知)","もとじゅく"],
+  ["本宿","もとじゅく"],
+  ["藤川","ふじかわ"],
+  ["美合","みあい"],
+  ["男川","おとがわ"],
+  ["東岡崎","ひがしおかざき"],
+  ["岡崎公園前","おかざきこうえんまえ"],
+  ["矢作橋","やはぎばし"],
+  ["宇頭","うとう"],
+  ["新安城","しんあんじょう"],
+  ["牛田(愛知)","うしだ"],
+  ["知立","ちりゅう"],
+  ["一ツ木","ひとつぎ"],
+  ["富士松","ふじまつ"],
+  ["豊明","とよあけ"],
+  ["前後","ぜんご"],
+  ["有松","ありまつ"],
+  ["左京山","さきょうやま"],
+  ["鳴海","なるみ"],
+  ["本星崎","もとほしざき"],
+  ["本笠寺","もとかさでら"],
+  ["呼続","よびつぎ"],
+  ["堀田(名古屋鉄道)","ほりた"],
+  ["堀田","ほりた"],
+  ["神宮前","じんぐうまえ"],
+  ["金山(愛知)","かなやま"],
+  ["金山","かなやま"],
+  ["山王(愛知)","さんのう"],
+  ["栄生","さこう"],
+  ["東枇杷島","ひがしびわじま"],
+  ["西枇杷島","にしびわじま"],
+  ["二ツ杁","ふたついり"],
+  ["新川橋","しんかわばし"],
+  ["須ヶ口","すかぐち"],
+  ["丸ノ内","まるのうち"],
+  ["新清洲","しんきよす"],
+  ["大里","おおさと"],
+  ["奥田","おくだ"],
+  ["島氏永","しまうじなが"],
+  ["妙興寺","みょうこうじ"],
+  ["今伊勢","いまいせ"],
+  ["石刀","いわと"],
+  ["新木曽川","しんきそがわ"],
+  ["木曽川堤","きそがわづつみ"],
+  ["黒田(愛知)","くろだ"],
+  ["笠松","かさまつ"],
+  ["岐南","ぎなん"],
+  ["茶所","ちゃじょ"],
+  ["加納(岐阜)","かのう"],
+  ["常滑","とこなめ"],
+  ["伊奈","いな"],
+  ["小田渕","おだぶち"],
+  ["豊橋","とよはし"],
+  ["桜(愛知)","さくら"],
+  /* 乗り換え案内などに出てくる言葉 */
+  ["尾西線","びさいせん"],
+  ["各務原線","かかみがはらせん"],
+  ["三柿野","みかきの"],
+  ["玉井","たまのい"],
+  ["森上","もりかみ"],
+  ["津島","つしま"],
+  ["犬山","いぬやま"],
+  ["岩倉","いわくら"],
+  ["蒲郡線","がまごおりせん"],
+  ["西尾線","にしおせん"],
+  ["河和線","こうわせん"],
+  ["竹鼻線","たけはなせん"],
+  ["瀬戸線","せとせん"],
+  ["築港線","ちっこうせん"],
+  ["名古屋鉄道",""],
+];
+/* 読み上げに渡す直前に、ふりがなへ置き換える。画面表示には影響しない。 */
+function yomi(t){
+  if(!t) return t;
+  let s=String(t);
+  for(let i=0;i<YOMI.length;i++) s = s.split(YOMI[i][0]).join(YOMI[i][1]);
+  return s;
+}
 let VOICE_JA=null, VOICE_EN=null;
 function pickVoice(){
   if(!("speechSynthesis" in window)) return null;
@@ -2316,7 +2457,7 @@ function speak(text){
   if(!S.voiceWanted || !("speechSynthesis" in window)) return;
   try{
     speechSynthesis.cancel();
-    const u=new SpeechSynthesisUtterance(text);
+    const u=new SpeechSynthesisUtterance(yomi(text));
     u.lang="ja-JP"; if(VOICE_JA) u.voice=VOICE_JA; u.rate=0.95;
     speechSynthesis.speak(u);
   }catch(_){}
@@ -2330,8 +2471,8 @@ function speakSeq(items){
     for(let i=0;i<items.length;i++){
       const it=items[i];
       if(!it || !it.text) continue;
-      const u=new SpeechSynthesisUtterance(it.text);
       const en = it.lang==="en-US";
+      const u=new SpeechSynthesisUtterance(en ? it.text : yomi(it.text));
       u.lang = en ? "en-US" : "ja-JP";
       const v = en ? VOICE_EN : VOICE_JA;
       if(v) u.voice=v;
@@ -2496,6 +2637,77 @@ function speakScript(entry){
   if(S.enAnnounceWanted && entry.e) seq.push({text:entry.e, lang:"en-US"});
   speakSeq(seq);
 }
+/* ---- 名鉄名古屋本線の自動放送(路線データから文章を組み立てる) ---- */
+const LINE_SCRIPT_LINES = { meitetsu_nagoya:true };
+function lineScriptOn(){
+  return !!LINE_SCRIPT_LINES[RT.lineKey] && S.lineAnnounceWanted;
+}
+/* 駅名から「(愛知)」などの補足を外す(読み上げ・表示用) */
+function plainName(n){ return String(n||"").replace(/\(.*?\)/g,""); }
+/* その駅で乗り換えられる路線を「◯◯線、△△線はお乗り換えです。」の形にする。
+   路線名の頭の「名鉄」は、実際の車内放送に合わせて省く。         */
+function transferPhrase(stationName){
+  const list = transfersAt(RT.lineKey, stationName);
+  if(!list || !list.length) return "";
+  const names = list.map(x=>{
+    let s = x.name.replace(/^名鉄/, "");
+    s = s.replace(/\(.*?\)/g, "");
+    return s;
+  }).filter((s,i,a)=>s && a.indexOf(s)===i);
+  if(!names.length) return "";
+  return names.join("、") + "はお乗り換えです。";
+}
+/* いま乗っている列車の種別名(普通・急行など)と行き先 */
+function lineTypeName(){
+  const L=rtLine(); if(!L) return "普通";
+  if(RT.type && RT.type!=="local" && L.types && L.types[RT.type]) return L.types[RT.type].name;
+  return (L.types && L.types.local && L.types.local.name) ? L.types.local.name : "普通";
+}
+function lineDestName(){
+  const st=rtStations(); if(!st || !st.length) return "";
+  const term = st[RT.dir>0 ? st.length-1 : 0];
+  return term ? plainName(term.n) : "";
+}
+/* 次の次に停まる駅(速達列車で「◯◯の次は△△に停まります」を言うため) */
+function stationAfterNext(){
+  const st=rtStations(); if(!st || RT.idx==null) return null;
+  const j=RT.idx + RT.dir*2;
+  return (j>=0 && j<st.length) ? st[j] : null;
+}
+/* 乗車したときのご案内 */
+function lineStartAnnounce(){
+  if(!lineScriptOn()) return;
+  const dest=lineDestName(); if(!dest) return;
+  speak("ご案内いたします。この列車は、"+lineTypeName()+"、"+dest+"ゆきです。");
+}
+/* 駅を発車した後の「次は◯◯です」 */
+function lineDepartAnnounce(){
+  if(!lineScriptOn()) return;
+  const next=rtNext(); if(!next) return;
+  const st=rtStations();
+  const isLast = st && (RT.idx + RT.dir === (RT.dir>0 ? st.length-1 : 0));
+  const nm = plainName(next.n);
+  let t = "ご乗車ありがとうございます。次は" + (isLast ? "終点、" : "") + nm + "です。";
+  const tr = transferPhrase(next.n);
+  if(tr) t += tr;
+  /* 普通(各駅停車)は次々と全駅に停まるので、「◯◯の次は…」は言わない。 */
+  const after = (RT.type && RT.type!=="local") ? stationAfterNext() : null;
+  if(after && !isLast) t += nm + "の次は、" + plainName(after.n) + "に停まります。";
+  speak(t);
+}
+/* 「まもなく◯◯です」 */
+function lineSoonText(name){
+  const st=rtStations();
+  const isLast = st && st.length && plainName(st[RT.dir>0 ? st.length-1 : 0].n)===plainName(name);
+  const nm=plainName(name);
+  let t = isLast
+    ? "名鉄をご利用いただきまして、ありがとうございました。まもなく、終点、"+nm+"に到着します。"
+    : "まもなく"+nm+"に到着します。";
+  const tr=transferPhrase(name);
+  if(tr) t += tr;
+  if(isLast) t += "お忘れ物の無いよう、ご注意ください。";
+  return t;
+}
 function announceSoon(name){
   showToast("まもなく "+name+" です");
   if(S.chimeWanted) beep();
@@ -2503,7 +2715,9 @@ function announceSoon(name){
   if(S.vibrateWanted) vibrateNotify();
   const mu = muskyOn() ? muskyScript().soon[name] : null;
   if(mu) speakScript(mu);
-  else speak(airportAnnounceOn() ? airportSoonText(name) : ("まもなく、"+name+"です。"));
+  else if(airportAnnounceOn()) speak(airportSoonText(name));
+  else if(lineScriptOn()) speak(lineSoonText(name));
+  else speak("まもなく、"+name+"です。");
   notify("まもなく到着", name+" にまもなく到着します。");
 }
 function speakArrived(name){
@@ -2511,8 +2725,11 @@ function speakArrived(name){
   if(S.chimeWanted) beep();
   if(S.flashWanted) flashScreen();
   if(S.vibrateWanted) vibrateNotify();
-  if(muskyOn()) speak(name.replace(/\(.*?\)/g,"")+"、"+name.replace(/\(.*?\)/g,"")+"です。");
-  else speak(airportAnnounceOn() ? airportArrivedText(name) : (name+"に到着しました。"));
+  const plain = name.replace(/\(.*?\)/g,"");
+  if(muskyOn()) chimeThenSpeak(()=>speak(plain+"、"+plain+"です。"));
+  else if(airportAnnounceOn()) chimeThenSpeak(()=>speak(airportArrivedText(name)));
+  else if(lineScriptOn()) chimeThenSpeak(()=>speak(plain+"、"+plain+"です。"));
+  else speak(name+"に到着しました。");
 }
 
 /* ---- 会社→路線→種別→駅 選択シート ---- */
@@ -2985,6 +3202,12 @@ if(swEnAnnounce) swEnAnnounce.onclick=()=>{
   swEnAnnounce.setAttribute("aria-pressed", String(S.enAnnounceWanted));
   save();
 };
+const swLineAnnounce=$("swLineAnnounce");
+if(swLineAnnounce) swLineAnnounce.onclick=()=>{
+  S.lineAnnounceWanted=!S.lineAnnounceWanted;
+  swLineAnnounce.setAttribute("aria-pressed", String(S.lineAnnounceWanted));
+  save();
+};
 
 loadFavs(); renderFavBar();
 loadBest(); loadLog();
@@ -3065,7 +3288,7 @@ $("btnReset").onclick=()=>{ resetStats(); sheet.hidden=true; };
 function save(){
   try{ localStorage.setItem("vd", JSON.stringify(
     {mode:S.mode.key, skin:S.skin, unit:S.unit.key, wake:S.wakeWanted,
-     notify:S.notifyWanted, voice:S.voiceWanted, chime:S.chimeWanted, flash:S.flashWanted, vibrate:S.vibrateWanted, airportAnnounce:S.airportAnnounceWanted, enAnnounce:S.enAnnounceWanted, chimeVol:S.chimeVol, clipVol:S.clipVol, autoMode:AUTO.mode,
+     notify:S.notifyWanted, voice:S.voiceWanted, chime:S.chimeWanted, flash:S.flashWanted, vibrate:S.vibrateWanted, airportAnnounce:S.airportAnnounceWanted, enAnnounce:S.enAnnounceWanted, lineAnnounce:S.lineAnnounceWanted, chimeVol:S.chimeVol, clipVol:S.clipVol, autoMode:AUTO.mode,
      rt: (RT.lineKey!=null && RT.idx!=null) ? {line:RT.lineKey, type:RT.type, idx:RT.idx, dir:RT.dir} : null
     })); }catch(_){}
 }
@@ -3083,6 +3306,7 @@ function load(){
     if(typeof o.vibrate==="boolean") S.vibrateWanted=o.vibrate;
     if(typeof o.airportAnnounce==="boolean") S.airportAnnounceWanted=o.airportAnnounce;
     if(typeof o.enAnnounce==="boolean") S.enAnnounceWanted=o.enAnnounce;
+    if(typeof o.lineAnnounce==="boolean") S.lineAnnounceWanted=o.lineAnnounce;
     if(typeof o.chimeVol==="number") S.chimeVol=clamp(o.chimeVol,0,1);
     if(typeof o.clipVol==="number") S.clipVol=clamp(o.clipVol,0,1);
     if(AUTO_MODES.some(x=>x.key===o.autoMode)) AUTO.mode=o.autoMode;
@@ -3111,6 +3335,7 @@ function load(){
   if(swVibrate) swVibrate.setAttribute("aria-pressed", String(S.vibrateWanted));
   if(swAirportAnnounce) swAirportAnnounce.setAttribute("aria-pressed", String(S.airportAnnounceWanted));
   if(swEnAnnounce) swEnAnnounce.setAttribute("aria-pressed", String(S.enAnnounceWanted));
+  if(swLineAnnounce) swLineAnnounce.setAttribute("aria-pressed", String(S.lineAnnounceWanted));
   if(rngChimeVol){ rngChimeVol.value=Math.round(S.chimeVol*100); if(chimeVolLabel) chimeVolLabel.textContent=rngChimeVol.value+"%"; }
   if(rngClipVol){ rngClipVol.value=Math.round(S.clipVol*100); if(clipVolLabel) clipVolLabel.textContent=rngClipVol.value+"%"; }
   const amo=$("autoModeOpts").children;
@@ -3131,6 +3356,11 @@ window.vd={ get speed(){return S.v;}, get raw(){return S.vRaw;},
               loadClip:loadClip, clips:{mu_sky:AUDIO_MUSKY_B64, ltd_express:AUDIO_TOKKYU_B64, centrair:AUDIO_CENTRAIR_B64} },
             airportAnnounce:{ departText:airportDepartText, soonText:airportSoonText, arrivedText:airportArrivedText,
               isOn:airportAnnounceOn, announceSoon:announceSoon, speakArrived:speakArrived },
+            yomi:yomi,
+            musicOn:isAirportAnnounceType,
+            lineAnnounce:{ isOn:lineScriptOn, soonText:lineSoonText, depart:lineDepartAnnounce,
+              start:lineStartAnnounce, typeName:lineTypeName, dest:lineDestName,
+              transfer:transferPhrase },
             bgmCheck:maybeStartCentrairBgm,
             bgmUserStopped:()=>BGM_USER_STOPPED,
             musky:{ script:muskyScript, isOn:muskyOn, toAirport:MUSKY_TO_AIRPORT, toGifu:MUSKY_TO_GIFU,
