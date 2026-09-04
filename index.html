@@ -768,6 +768,24 @@ body.flashPulse{animation:flashPulseAnim .7s ease}
 .delaytest.show{display:block}
 .raillink{display:block;text-decoration:none;color:inherit}
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+
+/* ══ 全画面表示（アプリ自身の上下のバーを隠す） ══════════════════ */
+.app.immersive > .bar,
+.app.immersive > .rail{ display:none !important; }
+#chromeBack{
+  position:fixed; z-index:60; right:10px;
+  top:calc(env(safe-area-inset-top) + 10px);
+  width:36px; height:36px; border-radius:50%;
+  display:grid; place-items:center; padding:0;
+  background:var(--surface-2); color:var(--ink-2);
+  border:.5px solid var(--line); opacity:.45;
+  transition:opacity .2s;
+}
+#chromeBack:active{ opacity:1; }
+#chromeBack[hidden]{ display:none !important; }
+#chromeBack svg,#btnImmersive svg{
+  width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;
+}
 </style>
 
 <div class="app">
@@ -780,6 +798,7 @@ body.flashPulse{animation:flashPulseAnim .7s ease}
     <button class="icon-btn" id="btnRecords" aria-label="記録を見る">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.6 6.2L21 9l-5 4.6L17.4 21 12 17.6 6.6 21 8 13.6 3 9l6.4-.8Z"/></svg>
     </button>
+    <button class="icon-btn" id="btnImmersive" aria-label="全画面表示にする"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     <button class="icon-btn" id="btnSettings" aria-label="設定を開く">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>
     </button>
@@ -4165,5 +4184,54 @@ requestAnimationFrame(frame);
 })();
 </script>
 
+
+<button id="chromeBack" hidden aria-label="バーを表示する"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg></button>
+<script>
+/* 上下のバーを隠す全画面表示。本体のコードには触れず、あとから足している。 */
+(() => {
+  const app  = document.querySelector('.app');
+  const btn  = document.getElementById('btnImmersive');
+  const back = document.getElementById('chromeBack');
+  if(!app || !btn || !back) return;
+  const KEY = 'vd-immersive';
+
+  const fsOn = () => document.fullscreenElement || document.webkitFullscreenElement;
+
+  function apply(on){
+    app.classList.toggle('immersive', on);
+    back.hidden = !on;
+    try{ localStorage.setItem(KEY, on ? '1' : '0'); }catch(_){}
+    /* メーターは canvas なので、隠して広がったぶんを測り直させる */
+    window.dispatchEvent(new Event('resize'));
+    setTimeout(()=>window.dispatchEvent(new Event('resize')), 260);
+  }
+
+  /* iPad の Safari は全画面 API に対応しているので、Safari のバーごと消せる。
+     iPhone の Safari は非対応なので、その場合はアプリ自身のバーだけが消える。 */
+  function requestFs(){
+    const el = document.documentElement;
+    try{
+      if(el.requestFullscreen) return el.requestFullscreen().catch(()=>{});
+      if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    }catch(_){}
+  }
+  function exitFs(){
+    try{
+      if(document.exitFullscreen && document.fullscreenElement) return document.exitFullscreen().catch(()=>{});
+      if(document.webkitExitFullscreen && document.webkitFullscreenElement) document.webkitExitFullscreen();
+    }catch(_){}
+  }
+
+  btn.addEventListener('click', () => { apply(true);  requestFs(); });
+  back.addEventListener('click', () => { apply(false); exitFs(); });
+
+  /* システム側で全画面をやめたときは、バーも戻す */
+  for(const ev of ['fullscreenchange','webkitfullscreenchange'])
+    document.addEventListener(ev, () => { if(!fsOn() && app.classList.contains('immersive')) apply(false); });
+
+  /* 前回の状態を復元。ここは操作起点ではないので全画面APIは呼べない（呼んでも拒否される） */
+  try{ if(localStorage.getItem(KEY) === '1') apply(true); }catch(_){}
+})();
+</script>
 </body>
 </html>
