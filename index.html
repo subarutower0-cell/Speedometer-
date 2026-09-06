@@ -3539,7 +3539,7 @@ function lineStopsPhrase(){
     if(mid.length>14) return "";        /* 多すぎるときは言わない */
   }
   if(!mid.length) return "";
-  return "停車駅は、"+mid.join("、")+"です。";
+  return ""+mid.join("、")+"の順にとまります。";
 }
 function lineStartAnnounce(){
   if(!lineScriptOn()) return;
